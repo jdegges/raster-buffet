@@ -1,0 +1,10 @@
+/q/2/test-seq/bmp/frame-001.bmp
+/q/2/test-seq/bmp/frame-002.bmp
+/q/2/test-seq/bmp/frame-003.bmp
+/q/2/test-seq/bmp/frame-004.bmp
+/q/2/test-seq/bmp/frame-005.bmp
+/q/2/test-seq/bmp/frame-006.bmp
+/q/2/test-seq/bmp/frame-007.bmp
+/q/2/test-seq/bmp/frame-008.bmp
+/q/2/test-seq/bmp/frame-009.bmp
+/q/2/test-seq/bmp/frame-010.bmp

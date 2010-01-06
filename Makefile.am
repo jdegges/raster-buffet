@@ -1,0 +1,3 @@
+SUBDIRS = src
+AUTOMAKE_OPTINS = subdir-objects
+ACLOCAL_AMFLAGS = -I m4
