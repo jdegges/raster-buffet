@@ -262,6 +262,26 @@ int main (int argc, char** argv) {
     }
     /* } end plugin selection */
 
+    /* TODO: spawn a new thread for each stage.
+    * - each thread should have an input queue associated with it
+    * - each thread should have an output queue associated with it
+    *     + exceptions: input/output threads
+    * - each plugin can specify the number of frames it needs to work on
+    *     the system should collect the specified number of frames before
+    *     invoking that stages exec function
+    *     each exec() function will be given a list of source images: 
+    *      {current_frame, cf-1, cf-2, cf-3, ..., cf-n}
+    * - at each stage, several different plugins may need to be called in serial
+    *     eg: --process plugin=foo,arg1=val1,arg2=val2; \
+    *                   plugin=bar,arg1=val1,arg2=val2;
+    *     here, the thread managing this stage should invoke foo.exec() followed by bar.exec()
+    *
+    *     the core will need to handle the case where 'bar' requires a different number of frames
+    *     than 'foo'. in which case a frame queue/cache is going to need to be implemented between the two
+    * - after exec'n each of the input/decode/convert/encode/output stage plugins the input to that stage
+    *     will no longer be available. the memory will be free'd
+    */
+
     /* init all selected plugins in stage order */
     for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
         if (plugins[c] && plugins[c]->pi[c] && plugins[c]->pi[c]->init &&
