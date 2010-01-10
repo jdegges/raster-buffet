@@ -520,17 +520,18 @@ int artistic_proc_exec (plugin_context* ctx,
     int ny;
     int pitch;
     int ns = 8;
+    image_t* sim;
     image_t* dim;
 
     if (NULL == (c = (artistic_proc_context*) ctx->data) ||
-        NULL == *src_data || NULL != *dst_data)
+        NULL == (sim = *src_data) || NULL != *dst_data)
     {
         return -1;
     }
 
-    nx = (*src_data)->width;
-    ny = (*src_data)->height;
-    pitch = (*src_data)->bpp/8 * nx;
+    nx = sim->width;
+    ny = sim->height;
+    pitch = sim->bpp/8 * nx;
 
     if (NULL == (dim = calloc (1, sizeof(image_t))) ||
         NULL == (dim->pix = malloc (sizeof(uint8_t)*ny*pitch)))
@@ -540,11 +541,11 @@ int artistic_proc_exec (plugin_context* ctx,
 
     dim->width = nx;
     dim->height = ny;
-    dim->bpp = (*src_data)->bpp;
+    dim->bpp = sim->bpp;
     dim->fmt = FMT_RGB24;
-    dim->frame = (*src_data)->frame;
+    dim->frame = sim->frame;
 
-    artistic_smooth ((*src_data)->pix, dim->pix, ns, 8.0, nx, ny, pitch, c->p, c->b[thread_id]);
+    artistic_smooth (sim->pix, dim->pix, ns, 8.0, nx, ny, pitch, c->p, c->b[thread_id]);
 
     *dst_data = dim;
     return 0;
