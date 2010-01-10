@@ -160,6 +160,7 @@ typedef struct fi_input_context {
     FILE*   filep;
     char*   filen;
     char**  buf;
+    int64_t frame;
 } fi_input_context;
 
 #define BUF_LEN 1031
@@ -196,6 +197,7 @@ int fi_input_init (plugin_context*  ctx,
             return -1;
         }
 
+        c->frame = 0;
         ctx->data = c;
     }
 
@@ -248,6 +250,9 @@ int fi_input_exec (plugin_context*  ctx,
         pthread_mutex_unlock (&ctx->mutex);
         return -1;
     }
+
+    // assign this new frame a proper frame number
+    im->frame = c->frame++;
 
     // unlock source file list
     pthread_mutex_unlock (&ctx->mutex);
@@ -364,6 +369,7 @@ int fi_decode_exec (plugin_context* ctx,
     dim->fmt = FMT_RGB24;
     dim->ext_data = dib24;
     dim->ext_free = (void*) &FreeImage_Unload;
+    dim->frame = sim->frame;
 
     *dst_data = dim;
 
@@ -630,6 +636,7 @@ int fi_encode_exec (plugin_context* ctx,
     dim->ext_data = hmem;
     dim->ext_free = (void*)&FreeImage_CloseMemory;
     dim->fmt = c->dst_fmt;
+    dim->frame = sim->frame;
 
     *dst_data = dim;
     return 0;
@@ -738,7 +745,7 @@ int fi_output_exec (plugin_context* ctx,
 
     ext = native_to_charfmt (im->fmt);
 
-    if (0 > (size = snprintf (c->buf[thread_id], BUF_LEN, "%s/frame-%ld.%s",
+    if (0 > (size = snprintf (c->buf[thread_id], BUF_LEN, "%s/frame-%05ld.%s",
                               c->dir, im->frame, ext)))
     {
         return -1;

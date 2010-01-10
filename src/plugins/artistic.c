@@ -542,6 +542,7 @@ int artistic_proc_exec (plugin_context* ctx,
     dim->height = ny;
     dim->bpp = (*src_data)->bpp;
     dim->fmt = FMT_RGB24;
+    dim->frame = (*src_data)->frame;
 
     artistic_smooth ((*src_data)->pix, dim->pix, ns, 8.0, nx, ny, pitch, c->p, c->b[thread_id]);
 

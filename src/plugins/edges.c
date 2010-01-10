@@ -96,6 +96,7 @@ int edges_proc_exec (plugin_context*    ctx,
     dim->height = im->height;
     dim->bpp = im->bpp;
     dim->fmt = FMT_RGB24;
+    dim->frame = im->frame;
 
     pitch = im->width*im->bpp/8;
 
