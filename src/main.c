@@ -262,28 +262,51 @@ int main (int argc, char** argv) {
     }
     /* } end plugin selection */
 
-    /* { init/exec/exit all selected plugins in stage order */
-    src_im = NULL;
-    dst_im = NULL;
+    /* init all selected plugins in stage order */
     for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
-        if (plugins[c]) {
-            if (plugins[c]->pi[c] &&
-                ((plugins[c]->pi[c]->init &&
-                    plugins[c]->pi[c]->init (&context_list[c], 0, stage_options[c]) < 0) ||
-                 (plugins[c]->pi[c]->exec &&
-                    plugins[c]->pi[c]->exec (&context_list[c], 0, &src_im, &dst_im) < 0) ||
-                 (plugins[c]->pi[c]->exit &&
-                    plugins[c]->pi[c]->exit (&context_list[c], 0) < 0 )))
-            {
-                fprintf (stderr, "Error executing plugin %s on stage %d.\n",
-                         plugins[c]->path, c);
-            }
-            image_close (src_im);
-            src_im = dst_im;
-            dst_im = NULL;
+        if (plugins[c] && plugins[c]->pi[c] && plugins[c]->pi[c]->init &&
+            plugins[c]->pi[c]->init (&context_list[c], 0, stage_options[c]) < 0)
+        {
+            fprintf (stderr, "Error executing plugin.init %s on stage %d.\n",
+                     plugins[c]->path, c);
         }
     }
-    /* } end init/exec/exit */
+
+    /* exec all selected plugins in stage order until one of them returns with
+     * an error code */
+    c = PLUGIN_STAGE_MAX;
+    while (c == PLUGIN_STAGE_MAX) {
+        src_im = NULL;
+        dst_im = NULL;
+        for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
+            if (plugins[c]) {
+                if (plugins[c]->pi[c] &&
+                     (plugins[c]->pi[c]->exec &&
+                        plugins[c]->pi[c]->exec (&context_list[c], 0, &src_im,
+                                                 &dst_im) < 0))
+                {
+                    fprintf (stderr,
+                             "Error executing plugin.exec %s on stage %d.\n",
+                             plugins[c]->path, c);
+                    image_close (src_im);
+                    break;
+                }
+                image_close (src_im);
+                src_im = dst_im;
+                dst_im = NULL;
+            }
+        }
+    }
+
+    /* exit all selected plugins in stage order */
+    for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
+        if (plugins[c] && plugins[c]->pi[c]->exit &&
+            plugins[c]->pi[c]->exit (&context_list[c], 0) < 0 )
+        {
+            fprintf (stderr, "Error executing plugin.exit %s on stage %d.\n",
+                     plugins[c]->path, c);
+        }
+    }
 
     /* { unload all plugins */
     close_all_plugins (pe_list, 100);
