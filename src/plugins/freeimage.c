@@ -175,20 +175,24 @@ int fi_input_init (plugin_context*  ctx,
     if (ctx->data == NULL) {
         // set up state shared between all threads
         if (NULL == (c = malloc (sizeof(fi_input_context)))) {
+            pthread_mutex_unlock (&ctx->mutex);
             return -1;
         }
 
         parse_args (args, 0, "rsc",  &(c->filen));
         if (NULL == c->filen) {
             fprintf (stderr, "No input rsc defined.\n");
+            pthread_mutex_unlock (&ctx->mutex);
             return -1;
         }
      
         if (NULL == (c->filep = fopen(c->filen, "r"))) {
+            pthread_mutex_unlock (&ctx->mutex);
             return -1;
         }
 
         if (NULL == (c->buf = calloc (ctx->num_threads, sizeof(char*)))) {
+            pthread_mutex_unlock (&ctx->mutex);
             return -1;
         }
 
@@ -200,10 +204,12 @@ int fi_input_init (plugin_context*  ctx,
     if (NULL == (c = (fi_input_context*) ctx->data) ||
         NULL != (c->buf[thread_id]))
     {
+        pthread_mutex_unlock (&ctx->mutex);
         return -1;
     }
 
     if (NULL == (c->buf[thread_id] = malloc (sizeof(char)*BUF_LEN))) {
+        pthread_mutex_unlock (&ctx->mutex);
         return -1;
     }
 
@@ -238,6 +244,8 @@ int fi_input_exec (plugin_context*  ctx,
     if (NULL == fgets (c->buf[thread_id], BUF_LEN, c->filep)
         || NULL == (path = strtok(c->buf[thread_id], "\n")))
     {
+        free (im);
+        pthread_mutex_unlock (&ctx->mutex);
         return -1;
     }
 
