@@ -1,4 +1,4 @@
-AM_CFLAGS = -I..
+AM_CPPFLAGS = -I$(top_srcdir)/src
 AM_LDFLAGS = -avoid-version -module -shared
 
 pkglib_LTLIBRARIES =    \
@@ -7,11 +7,12 @@ pkglib_LTLIBRARIES =    \
     artistic.la
 
 freeimage_la_SOURCES = freeimage.c
-freeimage_la_LIBADD = -lfreeimage -lstdc++
+freeimage_la_LIBADD = $(FREEIMAGE_LIBS)
 
 edges_la_SOURCES = edges.c
-edges_la_LIBADD = -lm
+edges_la_LIBADD = $(M_LIBS)
 
 artistic_la_SOURCES = artistic.c
-artistic_la_LIBADD = -lfftw3 -lm
+artistic_la_LIBADD = $(FFTW3_LIBS)
+artistic_la_CFLAGS = $(FFTW3_CFLAGS)
 
