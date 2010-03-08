@@ -152,56 +152,55 @@ typedef struct artistic_proc_context {
     char*               args;
     fft_plans_t*        p;
     artistic_buf_t**    b;
+    int                 width;
+    int                 height;
+    double              sgm;
+    int                 ns;
 } artistic_proc_context;
 
-int artistic_proc_init (plugin_context* ctx,
-                        int             thread_id,
-                        char*           args)
+int init_global_bufs (plugin_context* ctx, int width, int height, double sgm, int ns)
 {
     artistic_proc_context* c;
-    image_t* dim;
-    const double sgm = 4.0;
-    const int ns = 8;
+    int nx = width;
+    int ny = height;
 
-    if (NULL == ctx) {
-        return -1;    
-    }
-
-    const int nx = 512; //sim->width; XXX
-    const int ny = 384; //sim->height; XXX
-    const int nxny = nx*ny;
-
-    pthread_mutex_lock (&ctx->mutex);
-
-    if (NULL == ctx->data) {
-        fft_plans_t* f = malloc (sizeof(fft_plans_t));
-        fftw_complex* in = fftw_malloc (sizeof(fftw_complex)*ny*(nx/2+1));
-        f->forward  = fftw_plan_dft_r2c_2d (ny, nx, (double*)in, in, FFTW_ESTIMATE);
-        f->backward = fftw_plan_dft_c2r_2d (ny, nx, in, (double*)in, FFTW_ESTIMATE);
-        fftw_free (in);
-
-        if (NULL == (c = malloc (sizeof(artistic_proc_context)))) {
-            return -1;
-        }
-
-        if (NULL == (c->b = calloc (ctx->num_threads, sizeof(artistic_buf_t*)))) {
-            return -1;
-        }
-
-        c->p = f;
-        ctx->data = c;
-    }
-
-    pthread_mutex_unlock (&ctx->mutex);
-
-    fft_plans_t* p;
-
-    if (NULL == (c = (artistic_proc_context*) ctx->data) ||
-        NULL == (p = (fft_plans_t*) c->p) ||
-        NULL == (c->b[thread_id] = malloc (sizeof(artistic_buf_t))))
-    {
+    if (nx <= 0 || ny <= 0) {
         return -1;
     }
+
+    fft_plans_t* f = malloc (sizeof(fft_plans_t));
+    fftw_complex* in = fftw_malloc (sizeof(fftw_complex)*ny*(nx/2+1));
+    f->forward  = fftw_plan_dft_r2c_2d (ny, nx, (double*)in, in, FFTW_ESTIMATE);
+    f->backward = fftw_plan_dft_c2r_2d (ny, nx, in, (double*)in, FFTW_ESTIMATE);
+    fftw_free (in);
+
+    if (NULL == (c = malloc (sizeof(artistic_proc_context)))) {
+        return -1;
+    }
+
+    if (NULL == (c->b = calloc (ctx->num_threads, sizeof(artistic_buf_t*)))) {
+        return -1;
+    }
+
+    c->width = width;
+    c->height = height;
+    c->sgm = sgm;
+    c->ns = ns;
+    c->p = f;
+    ctx->data = c;
+
+    return 0;
+}
+
+int init_thread_bufs (plugin_context* ctx, int thread_id)
+{
+    artistic_proc_context* c = ctx->data;
+    const int nx = c->width;
+    const int ny = c->height;
+    const int nxny = nx*ny;
+    const double sgm = c->sgm;
+    const int ns = c->ns;
+    fft_plans_t* p = c->p;
 
     {
         int i, j, k;
@@ -251,6 +250,66 @@ int artistic_proc_init (plugin_context* ctx,
 
         fftw_free (g2);
         free (g1);
+    }
+    return 0;
+}
+
+int artistic_proc_init (plugin_context* ctx,
+                        int             thread_id,
+                        char*           args)
+{
+    artistic_proc_context* c;
+    const double sgm = 4.0;
+    const int ns = 8;
+
+    if (NULL == ctx) {
+        return -1;    
+    }
+
+    int nx;
+    int ny;
+
+    pthread_mutex_lock (&ctx->mutex);
+
+    if (NULL == ctx->data) {
+        char* width_str = NULL;
+        char* height_str = NULL;
+
+        parse_args (args, 0, "width", &width_str);
+        if (NULL == width_str) {
+            ctx->data = NULL;
+            pthread_mutex_unlock (&ctx->mutex);
+            return 0;
+        }
+        nx = atoi (width_str);
+
+        parse_args (args, 0, "height", &height_str);
+        if (NULL == height_str) {
+            free (width_str);
+            ctx->data = NULL;
+            pthread_mutex_unlock (&ctx->mutex);
+            return 0;
+        }
+        ny = atoi (height_str);
+
+        if (init_global_bufs (ctx, nx, ny, sgm, ns)) {
+            return -1;
+        }
+    }
+
+    pthread_mutex_unlock (&ctx->mutex);
+
+    fft_plans_t* p;
+
+    if (NULL == (c = (artistic_proc_context*) ctx->data) ||
+        NULL == (p = (fft_plans_t*) c->p) ||
+        NULL == (c->b[thread_id] = malloc (sizeof(artistic_buf_t))))
+    {
+        return -1;
+    }
+
+    if (init_thread_bufs (ctx, thread_id)) {
+        return -1;
     }
 
     return 0;
@@ -519,14 +578,37 @@ int artistic_proc_exec (plugin_context* ctx,
     int nx;
     int ny;
     int pitch;
+    double sgm = 4.0;
     int ns = 8;
     image_t* sim;
     image_t* dim;
 
+    if (NULL == (sim = *src_data) || NULL != *dst_data) {
+        return -1;
+    }
+
+    pthread_mutex_lock (&ctx->mutex);
+    if (NULL == ctx->data) {
+        if (init_global_bufs (ctx, sim->width, sim->height, sgm, ns)) {
+            return -1;
+        }
+    }
+    pthread_mutex_unlock (&ctx->mutex);
+
     if (NULL == (c = (artistic_proc_context*) ctx->data) ||
-        NULL == (sim = *src_data) || NULL != *dst_data)
+        NULL == c->p)
     {
         return -1;
+    }
+
+    if (NULL == c->b[thread_id]) {
+        if (NULL == (c->b[thread_id] = malloc (sizeof(artistic_buf_t))))
+        {
+            return -1;
+        }
+        if (init_thread_bufs (ctx, thread_id)) {
+            return -1;
+        }
     }
 
     nx = sim->width;
