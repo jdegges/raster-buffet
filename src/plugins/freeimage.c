@@ -181,15 +181,13 @@ int fi_input_init (plugin_context*  ctx,
         }
 
         parse_args (args, 0, "rsc",  &(c->filen));
-        if (NULL == c->filen) {
-            fprintf (stderr, "No input rsc defined.\n");
-            pthread_mutex_unlock (&ctx->mutex);
-            return -1;
-        }
-     
-        if (NULL == (c->filep = fopen(c->filen, "r"))) {
-            pthread_mutex_unlock (&ctx->mutex);
-            return -1;
+        if (NULL == c->filen || *c->filen == '-') {
+            c->filep = stdin;
+        } else {
+            if (NULL == (c->filep = fopen(c->filen, "r"))) {
+                pthread_mutex_unlock (&ctx->mutex);
+                return -1;
+            }
         }
 
         if (NULL == (c->buf = calloc (ctx->num_threads, sizeof(char*)))) {
@@ -692,16 +690,16 @@ int fi_output_init (plugin_context* ctx,
         }
 
         parse_args (args, 0, "rsc", &c->filen);
-        if (NULL == c->filen) {
-            return -1;
+        if (NULL == c->filen || '-' == *c->filen) {
+            c->filep = stdout;
+        } else {
+            if (NULL == (c->filep = fopen (c->filen, "w"))) {
+                return -1;
+            }
         }
 
         parse_args (args, 0, "dir", &c->dir);
         if (NULL == c->dir) {
-            return -1;
-        }
-
-        if (NULL == (c->filep = fopen (c->filen, "w"))) {
             return -1;
         }
 
