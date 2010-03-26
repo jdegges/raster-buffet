@@ -35,14 +35,14 @@
 #include <string.h>
 #include <math.h>
 
-// fft stuff
+/* fft stuff */
 #include <complex.h>
 #include <fftw3.h>
 
 #include "image.h"
 #include "plugin.h"
 
-// function definitions
+/* function definitions */
 int artistic_query (plugin_stage    stage,
                     plugin_info**   pi);
 
@@ -56,14 +56,13 @@ int artistic_proc_exec (plugin_context* ctx,
 int artistic_proc_exit (plugin_context* ctx,
                         int             thread_id);
 
-// process plugin configuration
-static const char process_name[] = "artistic_process";
+/* process plugin configuration */
 static const data_fmt supported_fmt[] = {FMT_RGB24};
 static plugin_info pi_artistic_proc = {.stage=PLUGIN_STAGE_PROCESS,
                                        .type=PLUGIN_TYPE_ASYNC,
                                        .src_fmt=supported_fmt,
                                        .dst_fmt=supported_fmt,
-                                       .name=process_name,
+                                       .name="artistic_process",
                                        .init=artistic_proc_init,
                                        .exit=artistic_proc_exit,
                                        .exec=artistic_proc_exec};
@@ -103,6 +102,7 @@ fftw_complex* gen_sec (const int nx, const int ny,
                        const double* g1, const fftw_complex* g2) {
     int i, j, x, y;
     double total = 0;
+    double* out;
 
     double* sec_d = fftw_malloc (sizeof(double)*ny*2*(nx/2+1));
     fftw_complex* sec = (fftw_complex*)sec_d;
@@ -124,7 +124,7 @@ fftw_complex* gen_sec (const int nx, const int ny,
 
     fftw_execute_dft_c2r (f->backward, sec, sec_d);
 
-    double* out = fftw_malloc (sizeof(double)*ny*2*(nx/2+1));
+    out = fftw_malloc (sizeof(double)*ny*2*(nx/2+1));
     x = nx/2;
     y = ny/2;
     for (j = 0; j < ny; j++) {
@@ -163,13 +163,15 @@ int init_global_bufs (plugin_context* ctx, int width, int height, double sgm, in
     artistic_proc_context* c;
     int nx = width;
     int ny = height;
+    fft_plans_t* f;
+    fftw_complex* in;
 
     if (nx <= 0 || ny <= 0) {
         return -1;
     }
 
-    fft_plans_t* f = malloc (sizeof(fft_plans_t));
-    fftw_complex* in = fftw_malloc (sizeof(fftw_complex)*ny*(nx/2+1));
+    f = malloc (sizeof(fft_plans_t));
+    in = fftw_malloc (sizeof(fftw_complex)*ny*(nx/2+1));
     f->forward  = fftw_plan_dft_r2c_2d (ny, nx, (double*)in, in, FFTW_ESTIMATE);
     f->backward = fftw_plan_dft_c2r_2d (ny, nx, in, (double*)in, FFTW_ESTIMATE);
     fftw_free (in);
@@ -203,7 +205,13 @@ int init_thread_bufs (plugin_context* ctx, int thread_id)
     fft_plans_t* p = c->p;
 
     {
-        int i, j, k;
+        int i;
+        double* g1;
+        double* g;
+        fftw_complex* g2;
+        double* g2_d;
+        fftw_complex** gc;
+
         artistic_buf_t* f = c->b[thread_id];
         f->g    = fftw_malloc (sizeof(fftw_complex*)*ns);
         f->src1 = fftw_malloc (sizeof(fftw_complex*)*3);
@@ -221,17 +229,17 @@ int init_thread_bufs (plugin_context* ctx, int thread_id)
             f->num[i]   = fftw_malloc (sizeof(double)*ny*2*(nx/2+1));
         }
 
-        double* g1 = malloc (sizeof(double)*nxny);
+        g1 = malloc (sizeof(double)*nxny);
         i = nxny;
-        double* g = g1 + nxny - 1;
+        g = g1 + nxny - 1;
         while (i--) {
             register double x_val = -nx/2.0 + (i%nx) * nx/(nx-1);
             register double y_val =  ny/2.0 - (i/nx) * ny/(ny-1);
             *g-- = exp(-(x_val*x_val+y_val*y_val)/(2.0*sgm*sgm));
         }
 
-        fftw_complex* g2 = fftw_malloc (sizeof(fftw_complex)*ny*(nx/2+1));
-        double* g2_d = (double*)g2;
+        g2 = fftw_malloc (sizeof(fftw_complex)*ny*(nx/2+1));
+        g2_d = (double*)g2;
         memset(g2, 0, sizeof(fftw_complex)*ny*(nx/2+1));
         g = g2_d + ny*2*(nx/2+1) - 1;
         i = ny*2*(nx/2+1);
@@ -242,7 +250,7 @@ int init_thread_bufs (plugin_context* ctx, int thread_id)
         }
         fftw_execute_dft_r2c (((fft_plans_t*)(p))->forward, g2_d, g2);
 
-        fftw_complex** gc = f->g + ns - 1;
+        gc = f->g + ns - 1;
         i = ns;
         while (i--) {
             *gc-- = gen_sec(nx, ny, (fft_plans_t*)(p), i*2.0*M_PI/ns, M_PI/ns, g1, g2);
@@ -261,13 +269,13 @@ int artistic_proc_init (plugin_context* ctx,
     artistic_proc_context* c;
     const double sgm = 4.0;
     const int ns = 8;
+    int nx;
+    int ny;
+    fft_plans_t* p;
 
     if (NULL == ctx) {
         return -1;    
     }
-
-    int nx;
-    int ny;
 
     pthread_mutex_lock (&ctx->mutex);
 
@@ -298,8 +306,6 @@ int artistic_proc_init (plugin_context* ctx,
     }
 
     pthread_mutex_unlock (&ctx->mutex);
-
-    fft_plans_t* p;
 
     if (NULL == (c = (artistic_proc_context*) ctx->data) ||
         NULL == (p = (fft_plans_t*) c->p) ||
@@ -385,7 +391,7 @@ int artistic_proc_exit (plugin_context* ctx,
 *d3++ = *s3++ * *m; *d4++ = *s4++ * *m;\
 *d5++ = *s5++ * *m; *d6++ = *s6++ * *m++;
 
-static inline void multiply_6_c(fftw_complex* d1, const fftw_complex* s1,
+static void multiply_6_c(fftw_complex* d1, const fftw_complex* s1,
                                 fftw_complex* d2, const fftw_complex* s2,
                                 fftw_complex* d3, const fftw_complex* s3,
                                 fftw_complex* d4, const fftw_complex* s4,
@@ -413,7 +419,7 @@ static inline void multiply_6_c(fftw_complex* d1, const fftw_complex* s1,
     }
 }
 
-static inline void divide_mul_const_d(double* d, const double* s, const double c, const int n) {
+static void divide_mul_const_d(double* d, const double* s, const double c, const int n) {
     register unsigned int i = n;
     unsigned int correction = n % 8;
     i -= correction;
@@ -443,7 +449,7 @@ rdst = 1 / (rdst * rdst * rdst * rdst);\
 *d3++ += *f++ * rdst;\
 *d4++ += rdst;
 
-static inline void mesh_d (const double* a, const double* b, const double* c,
+static void mesh_d (const double* a, const double* b, const double* c,
                            const double* d, const double* e, const double* f,
                            const double k, const double k2,
                            double* d1, double* d2, double* d3, double* d4, const int n) {
@@ -478,7 +484,7 @@ void artistic_smooth (uint8_t* src,
                       fft_plans_t* f,
                       artistic_buf_t* ab)
 {
-    int i, j, k;
+    int i, j, k, x, y;
     const int width = 2*(nx/2+1);
     const double nxny = nx*ny;
     const double nxny2 = nxny*nxny;
@@ -552,8 +558,8 @@ void artistic_smooth (uint8_t* src,
         divide_mul_const_d(num[k], den, nxny, n2);
     }
 
-    int x = nx/2.0;
-    int y = ny/2.0;
+    x = nx/2.0;
+    y = ny/2.0;
     for (j = 0; j < ny; j++) {
         int k = (j - y) % ny;
         k = (k < 0 ? ny + k : k) * 2*(nx/2+1);

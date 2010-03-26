@@ -63,7 +63,7 @@ int edges_query (plugin_stage   stage,
 }
 /* end plugin interface */
 
-inline int clip_uint8( int v )
+static int clip_uint8( int v )
 {
     return ( (v < 0) ? 0 : (v > 255) ? 255 : v );
 }
@@ -77,11 +77,11 @@ int edges_proc_exec (plugin_context*    ctx,
 {
     image_t* im;
     image_t* dim;
-    //const double op = 255/sqrt(pow(255*3,2)*2); //  = max / (lmax - lmin)
+/*    const double op = 255/sqrt(pow(255*3,2)*2); //  = max / (lmax - lmin) */
     int i, j;
     int pitch;
 
-    // make sure inputs are valid
+    /* make sure inputs are valid */
     if (
         NULL == (im = *src_data) ||
         NULL != *dst_data ||
@@ -90,7 +90,7 @@ int edges_proc_exec (plugin_context*    ctx,
         return -1;
     }
 
-    // allocate output image
+    /* allocate output image */
     dim->pix = calloc (im->height*im->width*im->bpp/8 * 3, sizeof(uint8_t));
     dim->width = im->width;
     dim->height = im->height;
@@ -105,35 +105,35 @@ int edges_proc_exec (plugin_context*    ctx,
         for( i = 1; i < im->width; i++ )
         {
             int ci, cj, pix;
-            double dx[3] = {0}; // {r, g, b}
-            double dy[3] = {0}; // {r, g, b}
+            double dx[3] = {0}; /* {r, g, b} */
+            double dy[3] = {0}; /* {r, g, b} */
 
             if( i == 0 || j == 0 || i == im->width-1 || j == im->height-1 )
                 continue;
 
             for( pix = 0; pix < 3; pix++ ) {
 
-                // left and right
+                /* left and right */
                 for( cj = j-1; cj < j+1; cj++ ) {
-                    dx[pix] -= im->pix[o(i-1,cj,pix)]; // left
-                    dx[pix] += im->pix[o(i+1,cj,pix)]; // right
+                    dx[pix] -= im->pix[o(i-1,cj,pix)]; /* left */
+                    dx[pix] += im->pix[o(i+1,cj,pix)]; /* right */
                 }
 
-                // top and bottom
+                /* top and bottom */
                 for( ci = i-1; ci < i+1; ci++ ) {
-                    dy[pix] += im->pix[o(ci,j-1,pix)]; // top
-                    dy[pix] -= im->pix[o(ci,j+1,pix)]; // bottom
+                    dy[pix] += im->pix[o(ci,j-1,pix)]; /* top */
+                    dy[pix] -= im->pix[o(ci,j+1,pix)]; /* bottom */
                 }
 
-                // to scale the resultant pixel down to its appropriate value it
-                // should be multiplied by op, but visually, it looks better to
-                // clip it... this may change in the future.
+                /* to scale the resultant pixel down to its appropriate value it
+                 * should be multiplied by op, but visually, it looks better to
+                 * clip it... this may change in the future. */
                 dim->pix[o(i,j,pix)] = clip_uint8( sqrt(pow(dx[pix],2)+pow(dy[pix],2)) );
             }
         }
     }
 
-    // pass the output image along
+    /* pass the output image along */
     *dst_data = dim;
 
     return 0;

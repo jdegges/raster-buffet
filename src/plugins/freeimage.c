@@ -20,9 +20,12 @@
  * THE SOFTWARE.
  *****************************************************************************/
 
+#define _BSD_SOURCE
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -34,7 +37,7 @@
 #include "image.h"
 #include "plugin.h"
 
-// function definitions
+/* function definitions */
 int freeimage_query (plugin_stage   stage,
                      plugin_info**  pi);
 
@@ -74,8 +77,9 @@ int fi_output_exit (plugin_context* ctx,
                     int             thread_id);
 
 data_fmt fif_to_native (FREE_IMAGE_FORMAT fif);
+FREE_IMAGE_FORMAT native_to_fif (data_fmt fmt);
 
-// input plugin configuration
+/* input plugin configuration */
 static const char input_name[] = "freeimage_input";
 static const data_fmt input_src_fmt[] = {FMT_LIST, -1};
 static const data_fmt input_dst_fmt[] = {
@@ -100,7 +104,7 @@ static plugin_info pi_freeimage_input = {.stage=PLUGIN_STAGE_INPUT,
                                          .exit=fi_input_exit,
                                          .exec=fi_input_exec};
 
-// decode plugin configuration
+/* decode plugin configuration */
 static const char decode_name[] = "freeimage_decode";
 static const data_fmt decode_dst_fmt[] = {FMT_RGB24, -1};
 static plugin_info pi_freeimage_decode = {.stage=PLUGIN_STAGE_DECODE,
@@ -112,7 +116,7 @@ static plugin_info pi_freeimage_decode = {.stage=PLUGIN_STAGE_DECODE,
                                           .exit=NULL,
                                           .exec=fi_decode_exec};
 
-// output plugin configuration
+/* output plugin configuration */
 static const char encode_name[] = "freeimage_encode";
 static plugin_info pi_freeimage_encode = {.stage=PLUGIN_STAGE_ENCODE,
                                           .type=PLUGIN_TYPE_ASYNC,
@@ -123,7 +127,7 @@ static plugin_info pi_freeimage_encode = {.stage=PLUGIN_STAGE_ENCODE,
                                           .exit=fi_encode_exit,
                                           .exec=fi_encode_exec};
 
-// output plugin configuration
+/* output plugin configuration */
 static const char output_name[] = "freeimage_output";
 static plugin_info pi_freeimage_output = {.stage=PLUGIN_STAGE_OUTPUT,
                                           .type=PLUGIN_TYPE_ASYNC,
@@ -174,7 +178,7 @@ int fi_input_init (plugin_context*  ctx,
     pthread_mutex_lock (&ctx->mutex);
 
     if (ctx->data == NULL) {
-        // set up state shared between all threads
+        /* set up state shared between all threads */
         if (NULL == (c = malloc (sizeof(fi_input_context)))) {
             pthread_mutex_unlock (&ctx->mutex);
             return -1;
@@ -199,8 +203,8 @@ int fi_input_init (plugin_context*  ctx,
         ctx->data = c;
     }
 
-    // setup state for this thread only (in this case each thread allocates its
-    // own fi_input_context.buf buffer)
+    /* setup state for this thread only (in this case each thread allocates its
+     * own fi_input_context.buf buffer) */
     if (NULL == (c = (fi_input_context*) ctx->data) ||
         NULL != (c->buf[thread_id]))
     {
@@ -238,7 +242,7 @@ int fi_input_exec (plugin_context*  ctx,
     }
     im->width = im->height = im->bpp = -1;
 
-    // lock source file list
+    /* lock source file list */
     pthread_mutex_lock (&ctx->mutex);
 
     if (NULL == fgets (c->buf[thread_id], BUF_LEN, c->filep)
@@ -249,10 +253,10 @@ int fi_input_exec (plugin_context*  ctx,
         return -1;
     }
 
-    // assign this new frame a proper frame number
+    /* assign this new frame a proper frame number */
     im->frame = c->frame++;
 
-    // unlock source file list
+    /* unlock source file list */
     pthread_mutex_unlock (&ctx->mutex);
 
     if (0 != stat (path, &sbuf)) {
@@ -268,7 +272,11 @@ int fi_input_exec (plugin_context*  ctx,
         return -1;
     }
 
-    if (sbuf.st_size != fread (im->pix, sizeof(uint8_t), sbuf.st_size, fptr)) {
+    if ((uintmax_t) sbuf.st_size != (uintmax_t) fread (im->pix,
+                                                       sizeof(uint8_t),
+                                                       sbuf.st_size,
+                                                       fptr))
+    {
         return -1;
     }
 
@@ -300,16 +308,16 @@ int fi_input_exit (plugin_context*  ctx,
     pthread_mutex_lock (&ctx->mutex);
 
     for (i = 0; i < ctx->num_threads; i++) {
-        // return only if some other thread still hasn't free'd all of its
-        // resources
+        /* return only if some other thread still hasn't free'd all of its
+         * resources */
         if (c->buf[i] != NULL) {
             pthread_mutex_unlock (&ctx->mutex);
             return 0;
         }
     }
 
-    // at this point all other threads have free'd their resources (c->buf[i])
-    // so it is safe to free the shared resources
+    /* at this point all other threads have free'd their resources (c->buf[i])
+     * so it is safe to free the shared resources */
 
     fclose (c->filep);
     free (c->filen);
@@ -359,19 +367,19 @@ int fi_decode_exec (plugin_context* ctx,
     fprintf (stderr, "width:%d\n", FreeImage_GetWidth(dib24));
     fprintf (stderr, "bpp:%d\n", FreeImage_GetBPP(dib24));
 
-    // plug decoded data into new image
+    /* plug decoded data into new image */
     dim->pix = FreeImage_GetBits (dib24);
     dim->width = FreeImage_GetWidth (dib24);
     dim->height = FreeImage_GetHeight (dib24);
     dim->bpp = FreeImage_GetBPP (dib24);
     dim->fmt = FMT_RGB24;
     dim->ext_data = dib24;
-    dim->ext_free = (void*) &FreeImage_Unload;
+    dim->ext_free = (void (*)(void *)) &FreeImage_Unload;
     dim->frame = sim->frame;
 
     *dst_data = dim;
 
-    // free up intermediate structs
+    /* free up intermediate structs */
     FreeImage_Unload (dib);
     FreeImage_CloseMemory (hmem);
 
@@ -598,14 +606,14 @@ int fi_encode_exec (plugin_context* ctx,
         NULL == (dim = calloc (1, sizeof(image_t))))
     {
         fprintf (stderr, "Error with args: fi_encode_exec\n");
-        fprintf (stderr, "c        : NULL == %p\n", c);
-        fprintf (stderr, "sim      : NULL == %p\n", sim);
-        fprintf (stderr, "*dst_data: NULL != %p\n", *dst_data);
-        fprintf (stderr, "dim      : NULL == %p\n", dim);
+        fprintf (stderr, "c        : NULL == %p\n", (void *) c);
+        fprintf (stderr, "sim      : NULL == %p\n", (void *) sim);
+        fprintf (stderr, "*dst_data: NULL != %p\n", (void *) *dst_data);
+        fprintf (stderr, "dim      : NULL == %p\n", (void *) dim);
         return -1;
     }
 
-    if (sim->ext_free == (void*)&FreeImage_Unload) {
+    if (sim->ext_free == (void (*)(void *)) &FreeImage_Unload) {
         if (NULL == (dib = sim->ext_data)) {
             return -1;
         }
@@ -632,7 +640,7 @@ int fi_encode_exec (plugin_context* ctx,
     FreeImage_Unload (dib);
 
     dim->ext_data = hmem;
-    dim->ext_free = (void*)&FreeImage_CloseMemory;
+    dim->ext_free = (void (*)(void *)) &FreeImage_CloseMemory;
     dim->fmt = c->dst_fmt;
     dim->frame = sim->frame;
 
@@ -753,8 +761,11 @@ int fi_output_exec (plugin_context* ctx,
 
     if (0 == pthread_mutex_lock(&ctx->mutex)) {
         got_ctx_lock = 1;
-        if (size != fwrite (c->buf[thread_id], sizeof(char), size, c->filep) ||
-            1 != fwrite ("\n", sizeof(char), 1, c->filep))
+        if ((uintmax_t) size != (uintmax_t) fwrite (c->buf[thread_id],
+                                                    sizeof(char),
+                                                    size,
+                                                    c->filep)
+            || 1 != fwrite ("\n", sizeof(char), 1, c->filep))
         {
             return -1;
         }
@@ -766,7 +777,11 @@ int fi_output_exec (plugin_context* ctx,
         return -1;
     }
 
-    if (im->size != fwrite (im->pix, sizeof(uint8_t), im->size, fptr)) {
+    if ((uintmax_t) im->size != (uintmax_t) fwrite (im->pix,
+                                                    sizeof(uint8_t),
+                                                    im->size,
+                                                    fptr))
+    {
         return -1;
     }
 
@@ -776,8 +791,11 @@ int fi_output_exec (plugin_context* ctx,
 
     if (!got_ctx_lock) {
         pthread_mutex_lock (&ctx->mutex);
-        if (size != fwrite (c->buf[thread_id], size, sizeof(char), c->filep) ||
-            1 != fwrite ("\n", 1, sizeof(char), c->filep))
+        if ((uintmax_t) size != (uintmax_t) fwrite (c->buf[thread_id],
+                                                    size,
+                                                    sizeof(char),
+                                                    c->filep)
+            || 1 != fwrite ("\n", 1, sizeof(char), c->filep))
         {
             return -1;
         }
@@ -846,13 +864,13 @@ data_fmt fif_to_native (FREE_IMAGE_FORMAT fif)
         case FIF_PFM:       return FMT_PFM;
         case FIF_PGM:       return FMT_PGM;
         case FIF_PGMRAW:    return FMT_PGMRAW;
-//        case FIF_PICT:      return FMT_PICT;
+/*        case FIF_PICT:      return FMT_PICT; */
         case FIF_PNG:       return FMT_PNG;
         case FIF_PPM:       return FMT_PPM;
         case FIF_PPMRAW:    return FMT_PPMRAW;
         case FIF_PSD:       return FMT_PSD;
         case FIF_RAS:       return FMT_RAS;
-//        case FIF_RAW:       return FMT_RAW;
+/*        case FIF_RAW:       return FMT_RAW; */
         case FIF_SGI:       return FMT_SGI;
         case FIF_TARGA:     return FMT_TARGA;
         case FIF_TIFF:      return FMT_TIFF;
@@ -889,13 +907,13 @@ FREE_IMAGE_FORMAT native_to_fif (data_fmt fmt)
         case FMT_PFM:       return FIF_PFM;
         case FMT_PGM:       return FIF_PGM;
         case FMT_PGMRAW:    return FIF_PGMRAW;
-        //case FMT_PICT:      return FIF_PICT;
+/*        case FMT_PICT:      return FIF_PICT; */
         case FMT_PNG:       return FIF_PNG;
         case FMT_PPM:       return FIF_PPM;
         case FMT_PPMRAW:    return FIF_PPMRAW;
         case FMT_PSD:       return FIF_PSD;
         case FMT_RAS:       return FIF_RAS;
-        //case FMT_RAW:       return FIF_RAW;
+/*        case FMT_RAW:       return FIF_RAW; */
         case FMT_SGI:       return FIF_SGI;
         case FMT_TARGA:     return FIF_TARGA;
         case FMT_TIFF:      return FIF_TIFF;

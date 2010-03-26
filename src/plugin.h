@@ -23,6 +23,8 @@
 #ifndef _H_RB_PLUGIN
 #define _H_RB_PLUGIN
 
+#include <pthread.h>
+
 #include "image.h"
 
 int parse_args(char* args, const int clear, char* key, char** value);
