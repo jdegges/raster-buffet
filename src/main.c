@@ -31,6 +31,8 @@
 #include <errno.h>
 #include <getopt.h>
 
+#include <loomlib/thread_pool.h>
+
 #include "image.h"
 #include "plugin.h"
 
@@ -39,6 +41,16 @@ typedef struct plugin_entry {
     lt_dlhandle     h;
     plugin_info*    pi[PLUGIN_STAGE_MAX];
 } plugin_entry;
+
+typedef struct plugin_state
+{
+    struct thread_pool* pool;
+    int current_stage;
+    image_t* src_im;
+    plugin_entry** plugins;
+    plugin_context* context_list;
+    size_t max_threads;
+} plugin_state;
 
 void usage (void) {
     fprintf (stderr, "Usage...\n");
@@ -176,6 +188,102 @@ int close_all_plugins (plugin_entry** pe_list, int pe_size) {
     }
 }
 
+static size_t active_stages;
+static pthread_mutex_t active_stages_lock;
+
+void increment_active_stages (void) {
+    pthread_mutex_lock (&active_stages_lock);
+    active_stages++;
+    pthread_mutex_unlock (&active_stages_lock);
+}
+
+void decrement_active_stages (struct thread_pool* pool) {
+    pthread_mutex_lock (&active_stages_lock);
+    active_stages--;
+    if (0 == active_stages) {
+        thread_pool_terminate (pool);
+    }
+    pthread_mutex_unlock (&active_stages_lock);
+}
+
+void exec_plugins (func_data data, exec_func* next_func, func_data* next_data)
+{
+    plugin_state *args = data;
+    struct thread_pool* pool = args->pool;
+    int c = args->current_stage;
+    image_t* src_im = args->src_im;
+    image_t* dst_im = NULL;
+    plugin_entry** plugins = args->plugins;
+    plugin_context* context_list = args->context_list;
+    size_t max_threads = args->max_threads;
+
+    /* find the first available plugin to execute */
+    for (c = args->current_stage; c < PLUGIN_STAGE_MAX; c++) {
+        if (plugins[c] && plugins[c]->pi[c] && plugins[c]->pi[c]->exec) {
+            break;
+        }
+    }
+
+    if (c < PLUGIN_STAGE_MAX) {
+        if (PLUGIN_STAGE_INPUT == c) {
+            pthread_mutex_lock (&active_stages_lock);
+            if (max_threads + 2 < active_stages) {
+                pthread_mutex_unlock (&active_stages_lock);
+                thread_pool_push (pool, exec_plugins, data);
+                return;
+            }
+            pthread_mutex_unlock (&active_stages_lock);
+
+            increment_active_stages ();
+        }
+
+        /* execute this plugin */
+        if (plugins[c]->pi[c]->exec (&context_list[c],
+                                     0,
+                                     &src_im,
+                                     &dst_im) < 0)
+        {
+            fprintf (stderr, "Error executing plugin.exec %s on stage %d.\n",
+                     plugins[c]->path, c);
+            image_close (src_im);
+            decrement_active_stages (pool);
+            return;
+        }
+
+        /* re-execute the first stage plugin (to get more input) */
+        if (PLUGIN_STAGE_INPUT == c) {
+            plugin_state *next_args = malloc (sizeof *next_args);
+
+            next_args->pool = pool;
+            next_args->current_stage = PLUGIN_STAGE_INPUT;
+            next_args->src_im = NULL;
+            next_args->plugins = plugins;
+            next_args->context_list = context_list;
+            next_args->max_threads = max_threads;
+
+            thread_pool_push (pool, exec_plugins, next_data);
+        }
+    }
+
+    /* find the next available plugin to execute */
+    for (++c; c < PLUGIN_STAGE_MAX; c++) {
+        if (plugins[c] && plugins[c]->pi[c] && plugins[c]->pi[c]->exec) {
+            break;
+        }
+    }
+
+    /* push the next plugin into the pool */
+    if (c < PLUGIN_STAGE_MAX) {
+        args->current_stage = c;
+        args->src_im = dst_im;
+
+        thread_pool_push (pool, exec_plugins, args);
+    } else {
+        free (args);
+        decrement_active_stages (pool);
+    }
+}
+
 #define SET_STAGE_ARGS(opt, stage) {                                    \
     case opt:                                                           \
         if (NULL == (stage_options[stage] = calloc (strlen(optarg)+1,   \
@@ -195,6 +303,10 @@ int main (int argc, char** argv) {
     plugin_entry* plugins[PLUGIN_STAGE_MAX] = {NULL};
     plugin_entry* pe_list[100] = {NULL};
     plugin_context context_list[PLUGIN_STAGE_MAX];
+    size_t parallel = 1;
+    active_stages = 0;
+
+    pthread_mutex_init (&active_stages_lock, NULL);
 
     lt_dlinit();
 
@@ -202,15 +314,16 @@ int main (int argc, char** argv) {
     while (1) {
         int option_index = 0;
         static struct option long_options[] = {
-            {"input",   required_argument,  0,  'i'},
-            {"decode",  required_argument,  0,  'd'},
-            {"process", required_argument,  0,  'p'},
-            {"encode",  required_argument,  0,  'e'},
-            {"output",  required_argument,  0,  'o'},
-            {0,         0,                  0,  0}
+            {"input",     required_argument,  0,  'i'},
+            {"decode",    required_argument,  0,  'd'},
+            {"process",   required_argument,  0,  'p'},
+            {"encode",    required_argument,  0,  'e'},
+            {"output",    required_argument,  0,  'o'},
+            {"parallel",  optional_argument,  0,  'j'},
+            {0,           0,                  0,  0}
         };
 
-        c = getopt_long (argc, argv, "i:d:p:e:o:", long_options, &option_index);
+        c = getopt_long (argc, argv, "i:d:p:e:o:j:", long_options, &option_index);
         if (-1 == c) {
             break;
         }
@@ -221,6 +334,13 @@ int main (int argc, char** argv) {
             SET_STAGE_ARGS ('p', PLUGIN_STAGE_PROCESS);
             SET_STAGE_ARGS ('e', PLUGIN_STAGE_ENCODE);
             SET_STAGE_ARGS ('o', PLUGIN_STAGE_OUTPUT);
+            case 'j':
+                parallel = strtoul (optarg, NULL, 10);
+                if (EINVAL == errno || ERANGE == errno) {
+                    usage ();
+                    return -1;
+                }
+                break;
             case '?':
             default:
                 usage ();
@@ -292,30 +412,19 @@ int main (int argc, char** argv) {
         }
     }
 
-    /* exec all selected plugins in stage order until one of them returns with
-     * an error code */
-    c = PLUGIN_STAGE_MAX;
-    while (c == PLUGIN_STAGE_MAX) {
-        src_im = NULL;
-        dst_im = NULL;
-        for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
-            if (plugins[c]) {
-                if (plugins[c]->pi[c] &&
-                     (plugins[c]->pi[c]->exec &&
-                        plugins[c]->pi[c]->exec (&context_list[c], 0, &src_im,
-                                                 &dst_im) < 0))
-                {
-                    fprintf (stderr,
-                             "Error executing plugin.exec %s on stage %d.\n",
-                             plugins[c]->path, c);
-                    image_close (src_im);
-                    break;
-                }
-                image_close (src_im);
-                src_im = dst_im;
-                dst_im = NULL;
-            }
-        }
+    /* exec all selected plugins */
+    {
+        struct thread_pool* pool = thread_pool_new (parallel);
+        plugin_state* args = malloc (sizeof *args);
+        args->pool = pool;
+        args->current_stage = PLUGIN_STAGE_INPUT;
+        args->src_im = NULL;
+        args->plugins = plugins;
+        args->context_list = context_list;
+        args->max_threads = parallel;
+
+        thread_pool_push (pool, exec_plugins, args);
+        thread_pool_free (pool);
     }
 
     /* exit all selected plugins in stage order */
@@ -344,5 +453,6 @@ int main (int argc, char** argv) {
 
     lt_dlexit();
 
+    pthread_mutex_destroy (&active_stages_lock);
     return 0;
 }

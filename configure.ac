@@ -29,9 +29,10 @@ AC_ARG_ENABLE([plugins],
     [enable_plugins=yes])
 
 # Checks for headers/libraries used in the core.
-ACX_PTHREAD([AC_SUBST([CC], ["${PTHREAD_CC}"])
-             AC_DEFINE([HAVE_PTHREAD], [1])],
-    [AC_MSG_ERROR(['libpthread' not found])])
+ACX_PTHREAD([AC_SUBST([CC], ["${PTHREAD_CC}"])],
+    [AC_MSG_ERROR(['pthreads' not found])])
+
+PKG_CHECK_MODULES([LOOMLIB], [loomlib])
 
 AC_CHECK_HEADER([ltdl.h],
     [AC_CHECK_LIB([ltdl], [lt_dladvise_init],
