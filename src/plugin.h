@@ -35,12 +35,12 @@ typedef enum {
     PLUGIN_STAGE_PROCESS,
     PLUGIN_STAGE_ENCODE,
     PLUGIN_STAGE_OUTPUT,
-    PLUGIN_STAGE_MAX,
+    PLUGIN_STAGE_MAX
 } plugin_stage;
 
 typedef enum {
     PLUGIN_TYPE_SYNC,
-    PLUGIN_TYPE_ASYNC,
+    PLUGIN_TYPE_ASYNC
 } plugin_type;
 
 typedef struct plugin_context {

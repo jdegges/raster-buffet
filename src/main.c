@@ -20,6 +20,8 @@
  * THE SOFTWARE.
  *****************************************************************************/
 
+#define _BSD_SOURCE 500
+
 #include <config.h>
 
 #include <stdlib.h>
@@ -72,7 +74,7 @@ int load_plugin (const char* path, plugin_entry* pe) {
     }
 
     size = strlen (path);
-    if (NAME_MAX <= (size = strlen (path)) ||
+    if (FILENAME_MAX <= (size = strlen (path)) ||
         NULL == (pe->path = calloc (size+1, sizeof(char))) ||
         NULL == (buf = malloc (sizeof(char)*size+7)))
     {
@@ -106,7 +108,7 @@ int load_plugin (const char* path, plugin_entry* pe) {
         return -1;
     }
 
-    // load all stages supported by this plugin
+    /* load all stages supported by this plugin */
     for (stage = 0; stage < PLUGIN_STAGE_MAX; stage++) {
         plugin_query (stage, &pe->pi[stage]);
         if (plugin_query (stage, &pe->pi[stage]) < 0 ||
@@ -121,8 +123,6 @@ int load_plugin (const char* path, plugin_entry* pe) {
 }
 
 int close_plugin (plugin_entry* pe) {
-    int stage;
-
     printf("closing plugin: %s\n", pe->path);
 
     lt_dlclose (pe->h);
@@ -149,7 +149,7 @@ int load_all_plugins (plugin_entry** pe_list, int pe_size) {
         int size = strlen(dp->d_name);
         plugin_entry* pe;
 
-        // find all files that end with ".so"
+        /* find all files that end with ".so" */
         if (NULL == (sub = strstr (dp->d_name+size-3, ".so")) ||
             '\0' != sub[3])
         {
@@ -175,9 +175,11 @@ int load_all_plugins (plugin_entry** pe_list, int pe_size) {
         fprintf (stderr, "Cannot close %s\n", dname);
         return -1;
     }
+
+    return 0;
 }
 
-int close_all_plugins (plugin_entry** pe_list, int pe_size) {
+void close_all_plugins (plugin_entry** pe_list, int pe_size) {
     int i;
 
     for (i = 0; i < pe_size; i++) {
@@ -261,7 +263,7 @@ void exec_plugins (func_data data, exec_func* next_func, func_data* next_data)
             next_args->context_list = context_list;
             next_args->max_threads = max_threads;
 
-            thread_pool_push (pool, exec_plugins, next_data);
+            thread_pool_push (pool, exec_plugins, next_args);
         }
     }
 
@@ -296,8 +298,6 @@ void exec_plugins (func_data data, exec_func* next_func, func_data* next_data)
 }
 
 int main (int argc, char** argv) {
-    image_t* src_im = NULL;
-    image_t* dst_im = NULL;
     int c;
     char* stage_options[PLUGIN_STAGE_MAX] = {0};
     plugin_entry* plugins[PLUGIN_STAGE_MAX] = {NULL};
@@ -350,13 +350,14 @@ int main (int argc, char** argv) {
     /* } end parse args */
 
     /* { load all plugins from ./plugins */
-    load_all_plugins (pe_list, 100);
+    if (load_all_plugins (pe_list, 100) < 0) {
+        return -1;
+    }
     /* } end load all */
 
     /* { go through plugin list and pick plugins that were specified with cli */
     for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
         char* value;
-        char buf[1031];
         int i;
 
         if (!stage_options[c]) {

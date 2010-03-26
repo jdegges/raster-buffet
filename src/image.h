@@ -72,7 +72,7 @@ typedef enum {
     FMT_XPM,
 
 /* used to specify a list of single image files */
-    FMT_LIST,
+    FMT_LIST
 } data_fmt;
 
 typedef struct image_t {
