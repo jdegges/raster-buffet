@@ -73,13 +73,13 @@ PKG_CHECK_MODULES([FFTW3], [fftw3 >= 3.0.0])
 
 # check for libOpenCL
 #
-AC_CHECK_HEADER([CL/cl.h],
-    [AC_CHECK_LIB([OpenCL], [clGetDeviceIDs],
-        [OPENCL_LIBS=-lOpenCL], [OPENCL_LIBS=])],
-    [OPENCL_LIBS=])
-AS_IF([test -z "$OPENCL_LIBS"],
-    [AC_MSG_ERROR(['libOpenCL' not found])])
-AC_SUBST([OPENCL_LIBS], [${OPENCL_LIBS}])
+#AC_CHECK_HEADER([CL/cl.h],
+#    [AC_CHECK_LIB([OpenCL], [clGetDeviceIDs],
+#        [OPENCL_LIBS=-lOpenCL], [OPENCL_LIBS=])],
+#    [OPENCL_LIBS=])
+#AS_IF([test -z "$OPENCL_LIBS"],
+#    [AC_MSG_ERROR(['libOpenCL' not found])])
+#AC_SUBST([OPENCL_LIBS], [${OPENCL_LIBS}])
 
 # add additional header/library checks here
 #   - consult examples for how to structure new checks
