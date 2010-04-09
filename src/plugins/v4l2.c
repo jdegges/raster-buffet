@@ -188,11 +188,23 @@ int v4l2_input_init (plugin_context* ctx,
         error_exit ("init", "invalid/missing v4l2 resource\n");
     }
 
-    v4l2_open (c, width, height, rsc, native_fmt, fmt);
+    ret_val = v4l2_open (c, width, height, rsc, native_fmt, fmt);
 
+    ctx->data = c;
 exit:
     pthread_mutex_unlock (&ctx->mutex);
     return ret_val;
+}
+
+data_fmt fourcc_to_native (unsigned int fmt)
+{
+    switch (fmt) {
+        case V4L2_PIX_FMT_YUYV:
+          fprintf (stderr, "FOUND NATIVE FORMAT\n");
+          return FMT_YUYV;
+    }
+    fprintf (stderr, "COULDNT FIND A SUITABLE NATIVE FORMAT\n");
+    return FMT_NONE;
 }
 
 int stofmt (char* str, data_fmt* native_fmt, unsigned int* fmt)
@@ -203,9 +215,12 @@ int stofmt (char* str, data_fmt* native_fmt, unsigned int* fmt)
     {
         case 3:
             *fmt = v4l2_fourcc (str[0], str[1], str[2], ' ');
+            break;
         case 4:
             *fmt = v4l2_fourcc (str[0], str[1], str[2], str[3]);
+            break;
         default:
+            fprintf (stderr, "invalid format length: %s is %lu chars long\n", str, len);
             return -1;
     }
 
@@ -223,8 +238,11 @@ int v4l2_input_exec (plugin_context*    ctx,
     v4l2_input_context* v4l2_ctx;
     int ret_val;
 
-    assert (NULL == src_data && NULL != dst_data && NULL == *dst_data);
-    assert (v4l2_ctx = ctx->data);
+    assert (NULL == *src_data);
+    assert (NULL == *dst_data);
+    assert (ctx != NULL);
+    assert (ctx->data != NULL);
+    assert (NULL != (v4l2_ctx = ctx->data));
 
     assert (im = calloc (1, sizeof *im));
     im->width = im->height = im->bpp = -1;
@@ -236,6 +254,8 @@ int v4l2_input_exec (plugin_context*    ctx,
     ret_val = v4l2_readimage (v4l2_ctx, im); 
 
     pthread_mutex_unlock (&ctx->mutex);
+
+    *dst_data = im;
 
     return ret_val;
 }
