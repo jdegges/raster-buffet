@@ -81,6 +81,10 @@ PKG_CHECK_MODULES([FFTW3], [fftw3 >= 3.0.0])
 #    [AC_MSG_ERROR(['libOpenCL' not found])])
 #AC_SUBST([OPENCL_LIBS], [${OPENCL_LIBS}])
 
+PKG_CHECK_MODULES([libswscale], [libswscale >= 0.10.0])
+PKG_CHECK_MODULES([libavutil], [libavutil >= 50.12.0])
+PKG_CHECK_MODULES([libavcodec], [libavcodec >= 52.59.0])
+
 # add additional header/library checks here
 #   - consult examples for how to structure new checks
 #   - try to use PKG_CONFIG macros wherever possible
