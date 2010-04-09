@@ -309,6 +309,7 @@ int main (int argc, char** argv) {
     pthread_mutex_init (&active_stages_lock, NULL);
 
     lt_dlinit();
+    lt_dlsetsearchpath(PKGLIBDIR);
 
     /* { parse args */
     while (1) {
