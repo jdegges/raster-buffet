@@ -111,10 +111,10 @@ int load_plugin (const char* path, plugin_entry* pe) {
     /* load all stages supported by this plugin */
     for (stage = 0; stage < PLUGIN_STAGE_MAX; stage++) {
         plugin_query (stage, &pe->pi[stage]);
-        if (plugin_query (stage, &pe->pi[stage]) < 0 ||
-            NULL == &pe->pi[stage])
+        if (0 <= plugin_query (stage, &pe->pi[stage]) &&
+            NULL != &pe->pi[stage])
         {
-            fprintf (stderr, "Plugin '%s' does not provide for stage %d.\n",
+            fprintf (stderr, "Plugin '%s' provides for stage %d.\n",
                      path, stage);
         }
     }
