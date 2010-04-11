@@ -34,6 +34,7 @@
 #include <getopt.h>
 
 #include <loomlib/thread_pool.h>
+#include <loomlib/async_queue.h>
 
 #include "image.h"
 #include "plugin.h"
@@ -47,6 +48,7 @@ typedef struct plugin_entry {
 typedef struct plugin_state
 {
     struct thread_pool* pool;
+    struct async_queue* tid_queue;
     int current_stage;
     image_t* src_im;
     plugin_entry** plugins;
@@ -212,6 +214,7 @@ void exec_plugins (func_data data, exec_func* next_func, func_data* next_data)
 {
     plugin_state *args = data;
     struct thread_pool* pool = args->pool;
+    struct async_queue* tid_queue = args->tid_queue;
     int c = args->current_stage;
     image_t* src_im = args->src_im;
     image_t* dst_im = NULL;
@@ -227,6 +230,8 @@ void exec_plugins (func_data data, exec_func* next_func, func_data* next_data)
     }
 
     if (c < PLUGIN_STAGE_MAX) {
+        int* tid;
+
         if (PLUGIN_STAGE_INPUT == c) {
             pthread_mutex_lock (&active_stages_lock);
             if (max_threads + 2 < active_stages) {
@@ -240,8 +245,9 @@ void exec_plugins (func_data data, exec_func* next_func, func_data* next_data)
         }
 
         /* execute this plugin */
+        tid = async_queue_pop (tid_queue, true);
         if (plugins[c]->pi[c]->exec (&context_list[c],
-                                     0,
+                                     *tid,
                                      &src_im,
                                      &dst_im) < 0)
         {
@@ -252,11 +258,15 @@ void exec_plugins (func_data data, exec_func* next_func, func_data* next_data)
             return;
         }
 
+        async_queue_push (tid_queue, tid);
+        image_close (src_im);
+
         /* re-execute the first stage plugin (to get more input) */
         if (PLUGIN_STAGE_INPUT == c) {
             plugin_state *next_args = malloc (sizeof *next_args);
 
             next_args->pool = pool;
+            next_args->tid_queue = tid_queue;
             next_args->current_stage = PLUGIN_STAGE_INPUT;
             next_args->src_im = NULL;
             next_args->plugins = plugins;
@@ -304,6 +314,7 @@ int main (int argc, char** argv) {
     plugin_entry* pe_list[100] = {NULL};
     plugin_context context_list[PLUGIN_STAGE_MAX];
     size_t parallel = 1;
+    size_t tid;
     active_stages = 0;
 
     pthread_mutex_init (&active_stages_lock, NULL);
@@ -375,7 +386,7 @@ int main (int argc, char** argv) {
             {
                 plugins[c] = pe_list[i];
 
-                context_list[c].num_threads = 1;
+                context_list[c].num_threads = parallel;
                 context_list[c].data = NULL;
                 pthread_mutex_init (&context_list[c].mutex, NULL);
             }
@@ -405,37 +416,61 @@ int main (int argc, char** argv) {
     */
 
     /* init all selected plugins in stage order */
-    for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
-        if (plugins[c] && plugins[c]->pi[c] && plugins[c]->pi[c]->init &&
-            plugins[c]->pi[c]->init (&context_list[c], 0, stage_options[c]) < 0)
-        {
-            fprintf (stderr, "Error executing plugin.init %s on stage %d.\n",
-                     plugins[c]->path, c);
+    for (tid = 0; tid < parallel; tid++) {
+        for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
+            if (plugins[c] && plugins[c]->pi[c] && plugins[c]->pi[c]->init &&
+                plugins[c]->pi[c]->init (&context_list[c],
+                                         tid,
+                                         stage_options[c]) < 0)
+            {
+                fprintf (stderr,
+                         "Error executing plugin.init %s on stage %d.\n",
+                         plugins[c]->path, c);
+                return -1;
+            }
         }
     }
 
     /* exec all selected plugins */
     {
+        int* t;
         struct thread_pool* pool = thread_pool_new (parallel);
+        struct async_queue* tid_queue = async_queue_new ();
         plugin_state* args = malloc (sizeof *args);
+
         args->pool = pool;
+        args->tid_queue = tid_queue;
         args->current_stage = PLUGIN_STAGE_INPUT;
         args->src_im = NULL;
         args->plugins = plugins;
         args->context_list = context_list;
         args->max_threads = parallel;
 
+        for (tid = 0; tid < parallel; tid++) {
+            t = malloc (sizeof *t);
+            *t = tid;
+            async_queue_push (tid_queue, t);
+        }
+
         thread_pool_push (pool, exec_plugins, args);
         thread_pool_free (pool);
+
+        while (NULL != (t = async_queue_pop (tid_queue, false))) {
+            free (t);
+        }
+        async_queue_free (tid_queue);
     }
 
     /* exit all selected plugins in stage order */
-    for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
-        if (plugins[c] && plugins[c]->pi[c]->exit &&
-            plugins[c]->pi[c]->exit (&context_list[c], 0) < 0 )
-        {
-            fprintf (stderr, "Error executing plugin.exit %s on stage %d.\n",
-                     plugins[c]->path, c);
+    for (tid = 0; tid < parallel; tid++) {
+        for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
+            if (plugins[c] && plugins[c]->pi[c]->exit &&
+                plugins[c]->pi[c]->exit (&context_list[c], tid) < 0 )
+            {
+                fprintf (stderr,
+                         "Error executing plugin.exit %s on stage %d.\n",
+                         plugins[c]->path, c);
+            }
         }
     }
 
