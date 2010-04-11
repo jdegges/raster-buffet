@@ -6,7 +6,7 @@ pkglib_LTLIBRARIES =    \
     edges.la            \
     artistic.la         \
     v4l2.la             \
-    rbswscale.la
+    swscale.la
 
 freeimage_la_SOURCES = freeimage.c
 freeimage_la_LIBADD = $(FREEIMAGE_LIBS)
@@ -20,6 +20,6 @@ artistic_la_CFLAGS = $(FFTW3_CFLAGS)
 
 v4l2_la_SOURCES = v4l2.c
 
-rbswscale_la_SOURCES = rbswscale.c
-rbswscale_la_LIBADD = $(libswscale_LIBS) $(libavutil_LIBS) $(libavcodec_LIBS) $(LOOMLIB_LIBS)
-rbswscale_la_CFLAGS = $(libswscale_CFLAGS) $(libavutil_CFLAGS) $(libavcodec_CFLAGS) $(LOOMLIB_CFLAGS)
+swscale_la_SOURCES = swscale.c
+swscale_la_LIBADD = $(libswscale_LIBS) $(libavutil_LIBS) $(libavcodec_LIBS) $(LOOMLIB_LIBS)
+swscale_la_CFLAGS = $(libswscale_CFLAGS) $(libavutil_CFLAGS) $(libavcodec_CFLAGS) $(LOOMLIB_CFLAGS)
