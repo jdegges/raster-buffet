@@ -193,11 +193,13 @@ void close_all_plugins (plugin_entry** pe_list, int pe_size) {
 }
 
 static size_t active_stages;
+static int nframes;
 static pthread_mutex_t active_stages_lock;
 
 void increment_active_stages (void) {
     pthread_mutex_lock (&active_stages_lock);
     active_stages++;
+    nframes = 0 < nframes ? nframes - 1 : nframes;
     pthread_mutex_unlock (&active_stages_lock);
 }
 
@@ -234,6 +236,11 @@ void exec_plugins (func_data data, exec_func* next_func, func_data* next_data)
 
         if (PLUGIN_STAGE_INPUT == c) {
             pthread_mutex_lock (&active_stages_lock);
+            if (0 == nframes) {
+                pthread_mutex_unlock (&active_stages_lock);
+                free (args);
+                return;
+            }
             if (max_threads + 2 < active_stages) {
                 pthread_mutex_unlock (&active_stages_lock);
                 thread_pool_push (pool, exec_plugins, data);
@@ -316,6 +323,7 @@ int main (int argc, char** argv) {
     size_t parallel = 1;
     size_t tid;
     active_stages = 0;
+    nframes = -1;
 
     pthread_mutex_init (&active_stages_lock, NULL);
 
@@ -332,10 +340,11 @@ int main (int argc, char** argv) {
             {"encode",    required_argument,  0,  'e'},
             {"output",    required_argument,  0,  'o'},
             {"parallel",  optional_argument,  0,  'j'},
+            {"frames",    optional_argument,  0,  'f'},
             {0,           0,                  0,  0}
         };
 
-        c = getopt_long (argc, argv, "i:d:p:e:o:j:", long_options, &option_index);
+        c = getopt_long (argc, argv, "i:d:p:e:o:j:f:", long_options, &option_index);
         if (-1 == c) {
             break;
         }
@@ -351,6 +360,16 @@ int main (int argc, char** argv) {
                 if (EINVAL == errno || ERANGE == errno) {
                     usage ();
                     return -1;
+                }
+                break;
+            case 'f':
+                nframes = strtoul (optarg, NULL, 10);
+                if (EINVAL == errno || ERANGE == errno) {
+                    usage ();
+                    return -1;
+                }
+                if (0 == nframes) {
+                    nframes = -1;
                 }
                 break;
             case '?':
