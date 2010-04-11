@@ -20,52 +20,6 @@
  * THE SOFTWARE.
  *****************************************************************************/
 
-#include <stddef.h>
-#include "image.h"
-#include "plugin.h"
-
-typedef enum {
-    IO_METHOD_READ,
-    IO_METHOD_MMAP,
-    IO_METHOD_USERPTR,
-} io_method;
-
-typedef struct buffer {
-    void *                  start;
-    size_t                  length;
-} buffer;
-
-//typedef unsigned int fourcc;
-
-typedef struct ia_v4l2_t {
-    char                dev_name[1031];
-    io_method           io;
-    int                 fd;
-    struct buffer *     buffers;
-    unsigned int        n_buffers;
-    int                 width;
-    int                 height;
-    unsigned int        fmt;
-    data_fmt            native_fmt;
-    int64_t             frame;
-    int references;
-} ia_v4l2_t;
-
-//image_t*
-//v4l2_readimage (ia_v4l2_t* v, ia_image_t* im);
-
-//ia_v4l2_t*
-//v4l2_open (int width, int height, const char* dev_name);
-
-//void
-//v4l2_close (ia_v4l2_t* v);
-
-/*
- *  V4L2 video capture example
- *
- *  This program can be used and distributed without restrictions.
- */
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -85,7 +39,35 @@ typedef struct ia_v4l2_t {
 
 #include <linux/videodev2.h>
 
+#include <image.h>
+#include <plugin.h>
+
 #define CLEAR(x) memset (&(x), 0, sizeof (x))
+
+typedef enum {
+    IO_METHOD_READ,
+    IO_METHOD_MMAP,
+    IO_METHOD_USERPTR,
+} io_method;
+
+typedef struct buffer {
+    void *                  start;
+    size_t                  length;
+} buffer;
+
+typedef struct v4l2_input_context {
+    char                dev_name[1031];
+    io_method           io;
+    int                 fd;
+    struct buffer *     buffers;
+    unsigned int        n_buffers;
+    int                 width;
+    int                 height;
+    unsigned int        fmt;
+    data_fmt            native_fmt;
+    int64_t             frame;
+    int references;
+} v4l2_input_context;
 
 /* external function definitions */
 int v4l2_query (plugin_stage          stage,
@@ -101,7 +83,6 @@ int v4l2_input_exec (plugin_context*  ctx,
 int v4l2_input_exit (plugin_context*  ctx,
                      int              thread_id);
 
-data_fmt fourcc_to_native (unsigned int fmt);
 unsigned int native_to_fourcc (data_fmt fmt);
 
 /* input plugin configuration */
@@ -130,84 +111,24 @@ int v4l2_query (plugin_stage stage, plugin_info** pi)
     return 0;
 }
 
-typedef ia_v4l2_t v4l2_input_context;
-
 #define error_exit(func, msg) { \
     fprintf (stderr, "%s_%s(): %s\n", input_name, func, msg); \
     ret_val = -1; \
     goto exit; \
 }
 
-int v4l2_input_init (plugin_context* ctx,
-                     int             thread_id,
-                     char*           args)
-{
-    v4l2_input_context* c;
-    char* param;
-    char* rsc;
-    int width;
-    int height;
-    data_fmt native_fmt;
-    unsigned int fmt;
-    struct stat buf;
-    int ret_val = -1;
-
-    pthread_mutex_lock (&ctx->mutex);
-
-
-    if (NULL != (c = ctx->data)) {
-        c->references++;
-        ret_val = 0;
-        goto exit;
-    }
-
-    if (NULL == (c = malloc (sizeof *c))) {
-        error_exit ("init", "out of memory");
-    }
-
-    c->references = 1;
-    c->frame = 0;
-
-    parse_args (args, 0, "width", &param);
-    if (NULL == param || (width = atoi (param)) <= 0) {
-        error_exit ("init", "invalid/missing width");
-    }
-
-    parse_args (args, 0, "height", &param);
-    if (NULL == param || (height = atoi (param)) <= 0) {
-        error_exit ("init", "invalid/missing height");
-    }
-
-    parse_args (args, 0, "fmt", &param);
-    if (NULL == param || stofmt (param, &native_fmt, &fmt) < 0) {
-        error_exit ("init", "invalid/missing desired format");
-    }
-
-    parse_args (args, 0, "rsc", &rsc);
-    if (NULL == param || stat (rsc, &buf) < 0) {
-        error_exit ("init", "invalid/missing v4l2 resource\n");
-    }
-
-    ret_val = v4l2_open (c, width, height, rsc, native_fmt, fmt);
-
-    ctx->data = c;
-exit:
-    pthread_mutex_unlock (&ctx->mutex);
-    return ret_val;
-}
-
-data_fmt fourcc_to_native (unsigned int fmt)
+static data_fmt fourcc_to_native (unsigned int fmt)
 {
     switch (fmt) {
         case V4L2_PIX_FMT_YUYV:
-          fprintf (stderr, "FOUND NATIVE FORMAT\n");
-          return FMT_YUYV;
+            return FMT_YUYV;
+        case V4L2_PIX_FMT_MJPEG:
+            return FMT_MJPEG;
     }
-    fprintf (stderr, "COULDNT FIND A SUITABLE NATIVE FORMAT\n");
     return FMT_NONE;
 }
 
-int stofmt (char* str, data_fmt* native_fmt, unsigned int* fmt)
+static int stofmt (char* str, data_fmt* native_fmt, unsigned int* fmt)
 {
     size_t len = strlen (str);
     
@@ -220,60 +141,12 @@ int stofmt (char* str, data_fmt* native_fmt, unsigned int* fmt)
             *fmt = v4l2_fourcc (str[0], str[1], str[2], str[3]);
             break;
         default:
-            fprintf (stderr, "invalid format length: %s is %lu chars long\n", str, len);
             return -1;
     }
 
     *native_fmt = fourcc_to_native (*fmt);
 
     return 0;
-}
-
-int v4l2_input_exec (plugin_context*    ctx,
-                     int                thread_id,
-                     image_t**          src_data,
-                     image_t**          dst_data)
-{
-    image_t* im;
-    v4l2_input_context* v4l2_ctx;
-    int ret_val;
-
-    assert (NULL == *src_data);
-    assert (NULL == *dst_data);
-    assert (ctx != NULL);
-    assert (ctx->data != NULL);
-    assert (NULL != (v4l2_ctx = ctx->data));
-
-    assert (im = calloc (1, sizeof *im));
-    im->width = im->height = im->bpp = -1;
-    im->fmt = v4l2_ctx->native_fmt;
-
-    pthread_mutex_lock (&ctx->mutex);
-
-    im->frame = v4l2_ctx->frame++;
-    ret_val = v4l2_readimage (v4l2_ctx, im); 
-
-    pthread_mutex_unlock (&ctx->mutex);
-
-    *dst_data = im;
-
-    return ret_val;
-}
-
-int v4l2_input_exit (plugin_context*    ctx,
-                     int                thread_id)
-{
-    v4l2_input_context* v4l2_ctx;
-
-    assert (v4l2_ctx = ctx->data);
-
-    pthread_mutex_lock (&ctx->mutex);
-
-    if (!--v4l2_ctx->references) {
-        v4l2_close (v4l2_ctx);
-    }
-
-    pthread_mutex_unlock (&ctx->mutex);
 }
 
 static void
@@ -298,8 +171,8 @@ xioctl                          (int                    fd,
     return r;
 }
 
-int
-read_frame          (ia_v4l2_t*             v,
+static int
+read_frame          (v4l2_input_context*    v,
                      image_t*               im)
 {
     struct v4l2_buffer buf;
@@ -402,7 +275,7 @@ read_frame          (ia_v4l2_t*             v,
     return 1;
 }
 
-int
+static int
 v4l2_readimage                        (v4l2_input_context*                v,
                                        image_t*                  im)
 {
@@ -442,8 +315,41 @@ v4l2_readimage                        (v4l2_input_context*                v,
     return 0;
 }
 
+int v4l2_input_exec (plugin_context*    ctx,
+                     int                thread_id,
+                     image_t**          src_data,
+                     image_t**          dst_data)
+{
+    image_t* im;
+    v4l2_input_context* v4l2_ctx;
+    int ret_val;
+
+    assert (NULL == *src_data);
+    assert (NULL == *dst_data);
+    assert (ctx != NULL);
+    assert (ctx->data != NULL);
+    assert (NULL != (v4l2_ctx = ctx->data));
+
+    assert (im = calloc (1, sizeof *im));
+    im->width = v4l2_ctx->width;
+    im->height = v4l2_ctx->height;
+    im->bpp = im->size = -1;
+    im->fmt = v4l2_ctx->native_fmt;
+
+    pthread_mutex_lock (&ctx->mutex);
+
+    im->frame = v4l2_ctx->frame++;
+    ret_val = v4l2_readimage (v4l2_ctx, im);
+
+    pthread_mutex_unlock (&ctx->mutex);
+
+    *dst_data = im;
+
+    return ret_val;
+}
+
 static void
-stop_capturing                  (ia_v4l2_t*             v)
+stop_capturing                  (v4l2_input_context*      v)
 {
     enum v4l2_buf_type type;
 
@@ -466,8 +372,8 @@ stop_capturing                  (ia_v4l2_t*             v)
     }
 }
 
-int
-start_capturing                 (ia_v4l2_t*             v)
+static int
+start_capturing                 (v4l2_input_context*      v)
 {
     unsigned int i;
     enum v4l2_buf_type type;
@@ -532,7 +438,7 @@ start_capturing                 (ia_v4l2_t*             v)
 }
 
 static void
-uninit_device                   (ia_v4l2_t*         v)
+uninit_device                   (v4l2_input_context*      v)
 {
     unsigned int i;
 
@@ -560,7 +466,7 @@ uninit_device                   (ia_v4l2_t*         v)
 }
 
 static void
-init_read           (ia_v4l2_t*             v,
+init_read           (v4l2_input_context*    v,
                      unsigned int           buffer_size)
 {
     struct buffer* buffers = calloc (1, sizeof (struct buffer));
@@ -582,7 +488,7 @@ init_read           (ia_v4l2_t*             v,
 }
 
 static void
-init_mmap           (ia_v4l2_t*             v)
+init_mmap           (v4l2_input_context*                  v)
 {
     struct v4l2_requestbuffers req;
 
@@ -649,7 +555,7 @@ init_mmap           (ia_v4l2_t*             v)
 }
 
 static void
-init_userp          (ia_v4l2_t*                 v,
+init_userp          (v4l2_input_context*        v,
                      unsigned int               buffer_size)
 {
     struct v4l2_requestbuffers req;
@@ -702,8 +608,8 @@ init_userp          (ia_v4l2_t*                 v,
     v->n_buffers = n_buffers;
 }
 
-int
-init_device                     (ia_v4l2_t*                 v)
+static int
+init_device                     (v4l2_input_context*      v)
 {
     struct v4l2_capability cap;
     struct v4l2_cropcap cropcap;
@@ -713,14 +619,13 @@ init_device                     (ia_v4l2_t*                 v)
     struct v4l2_frmsizeenum frmsize;
     unsigned int min;
     int i, j;
-    unsigned int available_frmsize[500][2] = {{0,0}};
     int found_fmt;
 
     int fd          = v->fd;
     char* dev_name  = v->dev_name;
     io_method io    = v->io;
-    int width       = v->width;
-    int height      = v->height;
+    size_t width    = v->width;
+    size_t height   = v->height;
     unsigned int img_fmt      = v->fmt;
 
     if (-1 == xioctl (fd, VIDIOC_QUERYCAP, &cap)) {
@@ -837,7 +742,6 @@ init_device                     (ia_v4l2_t*                 v)
     fmt.fmt.pix.height = height;
 
     if (-1 == xioctl (fd, VIDIOC_S_FMT, &fmt)) {
-        printf("got error here\n");
         errno_exit ("VIDIOC_S_FMT");
     }
 
@@ -867,7 +771,7 @@ init_device                     (ia_v4l2_t*                 v)
 }
 
 static void
-close_device                    (ia_v4l2_t*             v)
+close_device                    (v4l2_input_context*      v)
 {
     int fd = v->fd;
     if (-1 == close (fd))
@@ -876,8 +780,8 @@ close_device                    (ia_v4l2_t*             v)
     fd = -1;
 }
 
-int
-open_device                     (ia_v4l2_t*             v)
+static int
+open_device                     (v4l2_input_context*      v)
 {
     struct stat st;
     char* dev_name = v->dev_name;
@@ -906,7 +810,7 @@ open_device                     (ia_v4l2_t*             v)
     return 0;
 }
 
-int
+static int
 v4l2_open                       (v4l2_input_context*    v,
                                  int                    width,
                                  int                    height,
@@ -939,11 +843,87 @@ v4l2_open                       (v4l2_input_context*    v,
     return 0;
 }
 
-void
+int v4l2_input_init (plugin_context* ctx,
+                     int             thread_id,
+                     char*           args)
+{
+    v4l2_input_context* c;
+    char* param;
+    char* rsc;
+    int width;
+    int height;
+    data_fmt native_fmt;
+    unsigned int fmt;
+    struct stat buf;
+    int ret_val = -1;
+
+    pthread_mutex_lock (&ctx->mutex);
+
+
+    if (NULL != (c = ctx->data)) {
+        c->references++;
+        ret_val = 0;
+        goto exit;
+    }
+
+    if (NULL == (c = malloc (sizeof *c))) {
+        error_exit ("init", "out of memory");
+    }
+
+    c->references = 1;
+    c->frame = 0;
+
+    parse_args (args, 0, "width", &param);
+    if (NULL == param || (width = atoi (param)) <= 0) {
+        error_exit ("init", "invalid/missing width");
+    }
+
+    parse_args (args, 0, "height", &param);
+    if (NULL == param || (height = atoi (param)) <= 0) {
+        error_exit ("init", "invalid/missing height");
+    }
+
+    parse_args (args, 0, "fmt", &param);
+    if (NULL == param || stofmt (param, &native_fmt, &fmt) < 0) {
+        error_exit ("init", "invalid/missing desired format");
+    }
+
+    parse_args (args, 0, "rsc", &rsc);
+    if (NULL == param || stat (rsc, &buf) < 0) {
+        error_exit ("init", "invalid/missing v4l2 resource");
+    }
+
+    ret_val = v4l2_open (c, width, height, rsc, native_fmt, fmt);
+    ctx->data = c;
+
+exit:
+    pthread_mutex_unlock (&ctx->mutex);
+    return ret_val;
+}
+
+static void
 v4l2_close                      (v4l2_input_context*             v)
 {
     stop_capturing (v);
     uninit_device (v);
     close_device (v);
-    ia_free (v);
+    free (v);
+}
+
+int v4l2_input_exit (plugin_context*    ctx,
+                     int                thread_id)
+{
+    v4l2_input_context* v4l2_ctx;
+
+    assert (NULL != (v4l2_ctx = ctx->data));
+
+    pthread_mutex_lock (&ctx->mutex);
+
+    if (!--v4l2_ctx->references) {
+        v4l2_close (v4l2_ctx);
+    }
+
+    pthread_mutex_unlock (&ctx->mutex);
+
+    return 0;
 }
