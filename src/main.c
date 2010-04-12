@@ -212,7 +212,7 @@ void decrement_active_stages (struct thread_pool* pool) {
     pthread_mutex_unlock (&active_stages_lock);
 }
 
-void exec_plugins (func_data data, exec_func* next_func, func_data* next_data)
+void exec_plugins (void* data)
 {
     plugin_state *args = data;
     struct thread_pool* pool = args->pool;
