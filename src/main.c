@@ -33,7 +33,7 @@
 #include <errno.h>
 #include <getopt.h>
 
-#include <loomlib/thread_pool.h>
+#include <loomlib/pipeline.h>
 #include <loomlib/async_queue.h>
 
 #include "image.h"
@@ -45,16 +45,16 @@ typedef struct plugin_entry {
     plugin_info*    pi[PLUGIN_STAGE_MAX];
 } plugin_entry;
 
-typedef struct plugin_state
-{
-    struct thread_pool* pool;
+typedef struct plugin_state {
     struct async_queue* tid_queue;
-    int current_stage;
-    image_t* src_im;
-    plugin_entry** plugins;
-    plugin_context* context_list;
-    size_t max_threads;
+    plugin_stage stage;
+    plugin_entry* plugin;
+    plugin_context* context;
 } plugin_state;
+
+static int nframes;
+static pthread_mutex_t nframes_lock;
+
 
 void usage (void) {
     fprintf (stderr, "Usage...\n");
@@ -192,115 +192,69 @@ void close_all_plugins (plugin_entry** pe_list, int pe_size) {
     }
 }
 
-static size_t active_stages;
-static int nframes;
-static pthread_mutex_t active_stages_lock;
-
-void increment_active_stages (void) {
-    pthread_mutex_lock (&active_stages_lock);
-    active_stages++;
-    nframes = 0 < nframes ? nframes - 1 : nframes;
-    pthread_mutex_unlock (&active_stages_lock);
-}
-
-void decrement_active_stages (struct thread_pool* pool) {
-    pthread_mutex_lock (&active_stages_lock);
-    active_stages--;
-    if (0 == active_stages) {
-        thread_pool_terminate (pool);
+static void
+exec_plugin (struct async_queue* tid_queue,
+                  int stage,
+                  image_t** src_im,
+                  image_t** dst_im,
+                  plugin_entry* plugin,
+                  plugin_context* context)
+{
+    int* tid = async_queue_pop (tid_queue, true);
+    if (plugin->pi[stage]->exec(context, *tid, src_im, dst_im) < 0) {
+        fprintf (stderr,
+                 "Error executing plugin.exec %s on stage %d.\n",
+                 plugin->path,
+                 stage);
+        *dst_im = NULL;
     }
-    pthread_mutex_unlock (&active_stages_lock);
+    async_queue_push (tid_queue, tid);
+    image_close (*src_im);
 }
 
-void exec_plugins (void* data)
+static void *
+exec_inlet_plugin (void* data)
 {
     plugin_state *args = data;
-    struct thread_pool* pool = args->pool;
-    struct async_queue* tid_queue = args->tid_queue;
-    int c = args->current_stage;
-    image_t* src_im = args->src_im;
+    image_t* src_im = NULL;
     image_t* dst_im = NULL;
-    plugin_entry** plugins = args->plugins;
-    plugin_context* context_list = args->context_list;
-    size_t max_threads = args->max_threads;
 
-    /* find the first available plugin to execute */
-    for (c = args->current_stage; c < PLUGIN_STAGE_MAX; c++) {
-        if (plugins[c] && plugins[c]->pi[c] && plugins[c]->pi[c]->exec) {
-            break;
-        }
+    pthread_mutex_lock (&nframes_lock);
+    if (0 == nframes) {
+        pthread_mutex_unlock (&nframes_lock);
+        return NULL;
     }
+    nframes = 0 < nframes ? nframes - 1 : nframes;
+    pthread_mutex_unlock (&nframes_lock);
 
-    if (c < PLUGIN_STAGE_MAX) {
-        int* tid;
+    exec_plugin (args->tid_queue, args->stage, &src_im, &dst_im,
+                 args->plugin, args->context);
 
-        if (PLUGIN_STAGE_INPUT == c) {
-            pthread_mutex_lock (&active_stages_lock);
-            if (0 == nframes) {
-                pthread_mutex_unlock (&active_stages_lock);
-                free (args);
-                return;
-            }
-            if (max_threads + 2 < active_stages) {
-                pthread_mutex_unlock (&active_stages_lock);
-                thread_pool_push (pool, exec_plugins, data);
-                return;
-            }
-            pthread_mutex_unlock (&active_stages_lock);
+    return dst_im;
+}
 
-            increment_active_stages ();
-        }
+static void *
+exec_pump_plugin (void* data, void* product)
+{
+    plugin_state *args = data;
+    image_t* src_im = product;
+    image_t* dst_im = NULL;
 
-        /* execute this plugin */
-        tid = async_queue_pop (tid_queue, true);
-        if (plugins[c]->pi[c]->exec (&context_list[c],
-                                     *tid,
-                                     &src_im,
-                                     &dst_im) < 0)
-        {
-            fprintf (stderr, "Error executing plugin.exec %s on stage %d.\n",
-                     plugins[c]->path, c);
-            image_close (src_im);
-            decrement_active_stages (pool);
-            return;
-        }
+    exec_plugin (args->tid_queue, args->stage, &src_im, &dst_im,
+                 args->plugin, args->context);
 
-        async_queue_push (tid_queue, tid);
-        image_close (src_im);
+    return dst_im;
+}
 
-        /* re-execute the first stage plugin (to get more input) */
-        if (PLUGIN_STAGE_INPUT == c) {
-            plugin_state *next_args = malloc (sizeof *next_args);
+static void
+exec_outlet_plugin (void* data, void* product)
+{
+    plugin_state *args = data;
+    image_t* src_im = product;
+    image_t* dst_im = NULL;
 
-            next_args->pool = pool;
-            next_args->tid_queue = tid_queue;
-            next_args->current_stage = PLUGIN_STAGE_INPUT;
-            next_args->src_im = NULL;
-            next_args->plugins = plugins;
-            next_args->context_list = context_list;
-            next_args->max_threads = max_threads;
-
-            thread_pool_push (pool, exec_plugins, next_args);
-        }
-    }
-
-    /* find the next available plugin to execute */
-    for (++c; c < PLUGIN_STAGE_MAX; c++) {
-        if (plugins[c] && plugins[c]->pi[c] && plugins[c]->pi[c]->exec) {
-            break;
-        }
-    }
-
-    /* push the next plugin into the pool */
-    if (c < PLUGIN_STAGE_MAX) {
-        args->current_stage = c;
-        args->src_im = dst_im;
-
-        thread_pool_push (pool, exec_plugins, args);
-    } else {
-        free (args);
-        decrement_active_stages (pool);
-    }
+    exec_plugin (args->tid_queue, args->stage, &src_im, &dst_im,
+                 args->plugin, args->context);
 }
 
 #define SET_STAGE_ARGS(opt, stage) {                                    \
@@ -322,10 +276,9 @@ int main (int argc, char** argv) {
     plugin_context context_list[PLUGIN_STAGE_MAX];
     size_t parallel = 1;
     size_t tid;
-    active_stages = 0;
     nframes = -1;
 
-    pthread_mutex_init (&active_stages_lock, NULL);
+    pthread_mutex_init (&nframes_lock, NULL);
 
     lt_dlinit();
     lt_dlsetsearchpath(PKGLIBDIR);
@@ -453,17 +406,9 @@ int main (int argc, char** argv) {
     /* exec all selected plugins */
     {
         int* t;
-        struct thread_pool* pool = thread_pool_new (parallel);
+        struct pipeline* pipe = pipeline_new (parallel);
         struct async_queue* tid_queue = async_queue_new ();
-        plugin_state* args = malloc (sizeof *args);
-
-        args->pool = pool;
-        args->tid_queue = tid_queue;
-        args->current_stage = PLUGIN_STAGE_INPUT;
-        args->src_im = NULL;
-        args->plugins = plugins;
-        args->context_list = context_list;
-        args->max_threads = parallel;
+        plugin_state args[PLUGIN_STAGE_MAX];
 
         for (tid = 0; tid < parallel; tid++) {
             t = malloc (sizeof *t);
@@ -471,8 +416,25 @@ int main (int argc, char** argv) {
             async_queue_push (tid_queue, t);
         }
 
-        thread_pool_push (pool, exec_plugins, args);
-        thread_pool_free (pool);
+        for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
+            if (plugins[c] && plugins[c]->pi[c] && plugins[c]->pi[c]->exec) {
+                args[c].tid_queue = tid_queue;
+                args[c].stage = c;
+                args[c].plugin = plugins[c];
+                args[c].context = &context_list[c];
+
+                if (PLUGIN_STAGE_INPUT == c) {
+                    pipeline_add_inlet (pipe, exec_inlet_plugin, &args[c]);
+                } else if (c < PLUGIN_STAGE_OUTPUT) {
+                    pipeline_add_pump (pipe, exec_pump_plugin, &args[c]);
+                } else {
+                    pipeline_add_outlet (pipe, exec_outlet_plugin, &args[c]);
+                }
+            }
+        }
+
+        pipeline_execute (pipe);
+        pipeline_free (pipe);
 
         while (NULL != (t = async_queue_pop (tid_queue, false))) {
             free (t);
@@ -484,7 +446,7 @@ int main (int argc, char** argv) {
     for (tid = 0; tid < parallel; tid++) {
         for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
             if (plugins[c] && plugins[c]->pi[c]->exit &&
-                plugins[c]->pi[c]->exit (&context_list[c], tid) < 0 )
+                plugins[c]->pi[c]->exit (&context_list[c], tid) < 0)
             {
                 fprintf (stderr,
                          "Error executing plugin.exit %s on stage %d.\n",
@@ -509,6 +471,6 @@ int main (int argc, char** argv) {
 
     lt_dlexit();
 
-    pthread_mutex_destroy (&active_stages_lock);
+    pthread_mutex_destroy (&nframes_lock);
     return 0;
 }
