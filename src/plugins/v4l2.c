@@ -877,16 +877,19 @@ int v4l2_input_init (plugin_context* ctx,
     if (NULL == param || (width = atoi (param)) <= 0) {
         error_exit ("init", "invalid/missing width");
     }
+    free (param);
 
     parse_args (args, 0, "height", &param);
     if (NULL == param || (height = atoi (param)) <= 0) {
         error_exit ("init", "invalid/missing height");
     }
+    free (param);
 
     parse_args (args, 0, "fmt", &param);
     if (NULL == param || stofmt (param, &native_fmt, &fmt) < 0) {
         error_exit ("init", "invalid/missing desired format");
     }
+    free (param);
 
     parse_args (args, 0, "rsc", &rsc);
     if (NULL == param || stat (rsc, &buf) < 0) {
@@ -894,6 +897,8 @@ int v4l2_input_init (plugin_context* ctx,
     }
 
     ret_val = v4l2_open (c, width, height, rsc, native_fmt, fmt);
+
+    free (rsc);
     ctx->data = c;
 
 exit:

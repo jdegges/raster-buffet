@@ -176,17 +176,20 @@ int swscale_decode_init (plugin_context*  ctx,
         if (NULL == param || (dst_width = atoi (param)) <= 0) {
             dst_width = -1;
         }
+        free (param);
 
         parse_args (args, 0, "height", &param);
         if (NULL == param || (dst_height = atoi (param)) <= 0) {
             dst_height = -1;
         }
+        free (param);
 
         parse_args (args, 0, "fmt", &param);
         if (NULL == param || stofmt (param, &dst_fmt, &sws_fmt) < 0) {
             dst_fmt = FMT_RGB24;
             sws_fmt = PIX_FMT_RGB24;
         }
+        free (param);
 
         c->dst_width = dst_width;
         c->dst_height = dst_height;
@@ -239,6 +242,7 @@ int swscale_decode_exit (plugin_context*  ctx,
             sws_freeContext (sws_context);
         }
 
+        async_queue_free (c->sws_context_queue);
         free (c);
         ctx->data = NULL;
     }

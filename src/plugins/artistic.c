@@ -290,6 +290,7 @@ int artistic_proc_init (plugin_context* ctx,
             return 0;
         }
         nx = atoi (width_str);
+        free (width_str);
 
         parse_args (args, 0, "height", &height_str);
         if (NULL == height_str) {
@@ -299,6 +300,7 @@ int artistic_proc_init (plugin_context* ctx,
             return 0;
         }
         ny = atoi (height_str);
+        free (height_str);
 
         if (init_global_bufs (ctx, nx, ny, sgm, ns)) {
             return -1;
