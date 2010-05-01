@@ -5,7 +5,7 @@ pkglib_LTLIBRARIES =    \
     freeimage.la        \
     edges.la            \
     artistic.la         \
-    simple_output.la
+    simpleio.la
 
 freeimage_la_SOURCES = freeimage.c
 freeimage_la_LIBADD = $(FREEIMAGE_LIBS)
@@ -17,4 +17,5 @@ artistic_la_SOURCES = artistic.c
 artistic_la_LIBADD = $(FFTW3_LIBS)
 artistic_la_CFLAGS = $(FFTW3_CFLAGS)
 
-simple_output_la_SOURCES = simple_output.c
+simpleio_la_SOURCES= simpleio.c
+
