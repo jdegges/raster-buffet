@@ -81,6 +81,9 @@ int edges_proc_exec (plugin_context*    ctx,
     int i, j;
     int pitch;
 
+    (void) ctx;
+    (void) thread_id;
+
     /* make sure inputs are valid */
     if (
         NULL == (im = *src_data) ||
