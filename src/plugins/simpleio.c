@@ -31,6 +31,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <errno.h>
 
 #include "image.h"
 #include "plugin.h"
@@ -122,12 +123,13 @@ int sio_input_init (plugin_context* ctx,
                     char*           args)
 {
     sio_input_context* c;
+    int ret_val = -1;
 
     pthread_mutex_lock (&ctx->mutex);
 
     if (ctx->data == NULL) {
         if (NULL == (c = malloc (sizeof *c))) {
-            return -1;
+            error_exit ("Out of memory");
         }
 
         parse_args (args, 0, "rsc", &c->filen);
@@ -135,7 +137,7 @@ int sio_input_init (plugin_context* ctx,
             c->filep = stdin;
         } else {
             if (NULL == (c->filep = fopen(c->filen, "r"))) {
-                return -1;
+                error_exit ("Unable to open %s for reading", c->filen);
             }
         }
 
@@ -144,13 +146,15 @@ int sio_input_init (plugin_context* ctx,
     }
 
     if (NULL == (c = (sio_input_context*) ctx->data)) {
-        return -1;
+        error_exit ("Invalid context");
     }
 
     c->references++;
+    ret_val = 0;
 
+exit:
     pthread_mutex_unlock (&ctx->mutex);
-    return 0;
+    return ret_val;
 }
 
 int sio_input_exec (plugin_context* ctx,
@@ -162,45 +166,48 @@ int sio_input_exec (plugin_context* ctx,
     char* path;
     image_t* im;
     size_t size = 1031;
-
-    if (NULL == (c = (sio_input_context*) ctx->data)) {
-        return -1;
-    }
+    int ret_val = -1;
 
     pthread_mutex_lock (&ctx->mutex);
 
+    if (NULL == (c = (sio_input_context*) ctx->data)) {
+        error_exit ("Invalid context");
+    }
+
     if (NULL == c->filep) {
-        return -1;
+        error_exit ("Invalid file pointer");
     }
 
     if (NULL == (im = calloc (1, sizeof *im))) {
-        return -1;
+        error_exit ("Out of memory");
     }
 
     im->width = im->height = im->bpp = -1;
 
     im->size = 0;
     if (NULL == (im->pix = malloc (size))) {
-        return -1;
+        error_exit ("Out of memory");
     }
 
     while (size == fread (im->pix + im->size, 1, size, c->filep)) {
         im->size += size;
         if (NULL == (im->pix = realloc (im->pix, im->size + size))) {
-            return -1;
+            error_exit ("Out of memory");
         }
     }
     im->size += size;
 
-    if (EOF == fclose (c->filep)) {
-        return -1;
+    if (0 != fclose (c->filep)) {
+        error_exit ("%s", strerror (errno));
     }
     c->filep = NULL;
 
-    pthread_mutex_unlock (&ctx->mutex);
-
     *dst_data = im;
-    return 0;
+    ret_val = 0;
+
+exit:
+    pthread_mutex_unlock (&ctx->mutex);
+    return ret_val;
 }
 
 int sio_input_exit (plugin_context* ctx,
@@ -208,24 +215,28 @@ int sio_input_exit (plugin_context* ctx,
 {
     sio_input_context* c;
     int i;
+    int ret_val = -1;
 
     if (NULL == (c = (sio_input_context*) ctx->data)) {
-        return -1;
+        error_exit ("Invalid context");
     }
 
     pthread_mutex_lock (&ctx->mutex);
 
     if (--c->references) {
-        pthread_mutex_unlock (&ctx->mutex);
-        return 0;
+        ret_val = 0;
+        goto exit;
     }
 
     free (c->filen);
     free (c);
 
     ctx->data = NULL;
+    ret_val = 0;
+
+exit:
     pthread_mutex_unlock (&ctx->mutex);
-    return 0;
+    return ret_val;
 }
 
 
@@ -240,12 +251,13 @@ int sio_output_init (plugin_context* ctx,
                      char*           args)
 {
     fi_output_context* c;
+    int ret_val = -1;
 
     pthread_mutex_lock (&ctx->mutex);
 
     if (ctx->data == NULL) {
         if (NULL == (c = malloc (sizeof(fi_output_context)))) {
-            return -1;
+            error_exit ("Out of memory");
         }
 
         parse_args (args, 0, "rsc", &c->filen);
@@ -253,7 +265,7 @@ int sio_output_init (plugin_context* ctx,
             c->filep = stdout;
         } else {
             if (NULL == (c->filep = fopen (c->filen, "w"))) {
-                return -1;
+                error_exit ("Unable to open %s for writing\n", c->filen);
             }
         }
 
@@ -262,13 +274,15 @@ int sio_output_init (plugin_context* ctx,
     }
 
     if (NULL == (c = (fi_output_context*) ctx->data)) {
-        return -1;
+        error_exit ("Invalid context");
     }
 
     c->references++;
+    ret_val = 0;
 
+exit:
     pthread_mutex_unlock (&ctx->mutex);
-    return 0;
+    return ret_val;
 }
 
 int sio_output_exec (plugin_context* ctx,
@@ -279,25 +293,29 @@ int sio_output_exec (plugin_context* ctx,
     fi_output_context* c;
     image_t* im;
     int size;
-
-    if (NULL == (c = (fi_output_context*) ctx->data) ||
-        NULL == (im = *src_data)) {
-        return -1;
-    }
+    int ret_val = -1;
 
     pthread_mutex_lock (&ctx->mutex);
+
+    if (NULL == (c = (fi_output_context*) ctx->data) ||
+        NULL == (im = *src_data))
+    {
+        error_exit ("Invalid context");
+    }
 
     if ((uintmax_t) im->size != (uintmax_t) fwrite (im->pix,
                                                     sizeof(uint8_t),
                                                     im->size,
                                                     c->filep))
     {
-        return -1;
+        error_exit ("Error writing %ld bytes to %s", im->size, c->filen);
     }
 
-    pthread_mutex_unlock (&ctx->mutex);
+    ret_val = 0;
 
-    return 0;
+exit:
+    pthread_mutex_unlock (&ctx->mutex);
+    return ret_val;
 }
 
 int sio_output_exit (plugin_context* ctx,
@@ -305,24 +323,26 @@ int sio_output_exit (plugin_context* ctx,
 {
     fi_output_context* c;
     int i;
-
-    if (NULL == (c = (fi_output_context*) ctx->data))
-    {
-        return -1;
-    }
+    int ret_val = -1;
 
     pthread_mutex_lock (&ctx->mutex);
 
+    if (NULL == (c = (fi_output_context*) ctx->data)) {
+        error_exit ("Invalid context");
+    }
+
     if (--c->references) {
-        pthread_mutex_unlock (&ctx->mutex);
-        return 0;
+        ret_val = 0;
+        goto exit;
     }
 
     fclose (c->filep);
     free (c->filen);
     free (c);
     ctx->data = NULL;
+    ret_val = 0;
 
+exit:
     pthread_mutex_unlock (&ctx->mutex);
-    return 0;
+    return ret_val;
 }
