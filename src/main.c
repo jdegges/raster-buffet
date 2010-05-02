@@ -93,8 +93,6 @@ int load_plugin (const char* path, plugin_entry* pe) {
         return -1;
     }
 
-    fprintf (stderr, "trying to open: %s\n", path);
-
     if (NULL == (pe->h = lt_dlopenadvise (path, advise))) {
         fprintf (stderr, "Error dlopening %s: %s\n", path, lt_dlerror());
         free (pe->path);
@@ -105,7 +103,7 @@ int load_plugin (const char* path, plugin_entry* pe) {
     lt_dladvise_destroy (&advise);
 
     snprintf (buf, size+7, "%s_query", path);
-    if (NULL == (plugin_query = lt_dlsym (pe->h, buf))) {
+    if (NULL == (plugin_query = (int (*)(plugin_stage, plugin_info**)) lt_dlsym (pe->h, buf))) {
         fprintf (stderr, "Error from dlsym(): %s\n", lt_dlerror());
         return -1;
     }
@@ -116,8 +114,7 @@ int load_plugin (const char* path, plugin_entry* pe) {
         if (0 <= plugin_query (stage, &pe->pi[stage]) &&
             NULL != &pe->pi[stage])
         {
-            fprintf (stderr, "Plugin '%s' provides for stage %d.\n",
-                     path, stage);
+            printf ("Found plugin '%s' providing for stage %d\n", path, stage);
         }
     }
     free (buf);
@@ -125,7 +122,7 @@ int load_plugin (const char* path, plugin_entry* pe) {
 }
 
 int close_plugin (plugin_entry* pe) {
-    printf("closing plugin: %s\n", pe->path);
+    printf("Closing plugin: %s\n", pe->path);
 
     lt_dlclose (pe->h);
     free (pe->path);
@@ -138,7 +135,7 @@ int load_all_plugins (plugin_entry** pe_list, int pe_size) {
     const char* dname = PKGLIBDIR;
     int i;
 
-    fprintf (stderr, "searching for plugins in: %s\n", dname);
+    printf ("Searching for plugins in: %s\n", dname);
     
     if (NULL == (dir = opendir (dname))) {
         fprintf (stderr, "Cannot open %s\n", dname);
@@ -178,6 +175,7 @@ int load_all_plugins (plugin_entry** pe_list, int pe_size) {
         return -1;
     }
 
+    printf ("\n");
     return 0;
 }
 
@@ -203,7 +201,7 @@ exec_plugin (struct async_queue* tid_queue,
     int* tid = async_queue_pop (tid_queue, true);
     if (plugin->pi[stage]->exec(context, *tid, src_im, dst_im) < 0) {
         fprintf (stderr,
-                 "Error executing plugin.exec %s on stage %d.\n",
+                 "Error executing plugin.exec %s on stage %d\n",
                  plugin->path,
                  stage);
         *dst_im = NULL;
@@ -292,8 +290,8 @@ int main (int argc, char** argv) {
             {"process",   required_argument,  0,  'p'},
             {"encode",    required_argument,  0,  'e'},
             {"output",    required_argument,  0,  'o'},
-            {"parallel",  optional_argument,  0,  'j'},
-            {"frames",    optional_argument,  0,  'f'},
+            {"parallel",  required_argument,  0,  'j'},
+            {"frames",    required_argument,  0,  'f'},
             {0,           0,                  0,  0}
         };
 
@@ -340,6 +338,7 @@ int main (int argc, char** argv) {
     /* } end load all */
 
     /* { go through plugin list and pick plugins that were specified with cli */
+    printf ("Active plugin summary:\n");
     for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
         char* value;
         int i;
@@ -358,6 +357,8 @@ int main (int argc, char** argv) {
             {
                 plugins[c] = pe_list[i];
 
+                printf ("Using plugin '%s' on stage %d\n", plugins[c]->path, c);
+
                 context_list[c].num_threads = parallel;
                 context_list[c].data = NULL;
                 pthread_mutex_init (&context_list[c].mutex, NULL);
@@ -365,6 +366,7 @@ int main (int argc, char** argv) {
         }
         free (value);
     }
+    printf ("\n");
     /* } end plugin selection */
 
     /* TODO: spawn a new thread for each stage.
@@ -390,18 +392,22 @@ int main (int argc, char** argv) {
     /* init all selected plugins in stage order */
     for (tid = 0; tid < parallel; tid++) {
         for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
-            if (plugins[c] && plugins[c]->pi[c] && plugins[c]->pi[c]->init &&
-                plugins[c]->pi[c]->init (&context_list[c],
-                                         tid,
-                                         stage_options[c]) < 0)
-            {
-                fprintf (stderr,
-                         "Error executing plugin.init %s on stage %d.\n",
-                         plugins[c]->path, c);
-                return -1;
+            if (plugins[c] && plugins[c]->pi[c] && plugins[c]->pi[c]->init) {
+                if (plugins[c]->pi[c]->init (&context_list[c],
+                                             tid,
+                                             stage_options[c]) < 0)
+                {
+                    fprintf (stderr,
+                             "Error executing plugin.init %s on stage %d.\n",
+                             plugins[c]->path, c);
+                    return -1;
+                } else {
+                    printf ("Initialized '%s' on stage %d\n", plugins[c]->path, c);
+                }
             }
         }
     }
+    printf ("\n");
 
     /* exec all selected plugins */
     {
