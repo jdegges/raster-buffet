@@ -23,9 +23,18 @@
 #ifndef _H_RB_PLUGIN
 #define _H_RB_PLUGIN
 
+#include <stdarg.h>
 #include <pthread.h>
 
 #include "image.h"
+
+#define error_exit(format, ...) { \
+    fprintf (stderr, "[%s:%d in %s] ", __FILE__, __LINE__, __func__); \
+    fprintf (stderr, format, ##__VA_ARGS__); \
+    fprintf (stderr, "\n"); \
+    ret_val = -1; \
+    goto exit; \
+}
 
 int parse_args(char* args, const int clear, char* key, char** value);
 
