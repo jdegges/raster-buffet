@@ -31,6 +31,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <errno.h>
 
 #include <FreeImage.h>
 
@@ -174,6 +175,7 @@ int fi_input_init (plugin_context*  ctx,
                    char*            args)
 {
     fi_input_context* c;
+    int ret_val = -1;
 
     pthread_mutex_lock (&ctx->mutex);
 
@@ -181,7 +183,7 @@ int fi_input_init (plugin_context*  ctx,
         /* set up state shared between all threads */
         if (NULL == (c = malloc (sizeof(fi_input_context)))) {
             pthread_mutex_unlock (&ctx->mutex);
-            return -1;
+            error_exit ("Out of memory");
         }
 
         parse_args (args, 0, "rsc",  &(c->filen));
@@ -190,13 +192,13 @@ int fi_input_init (plugin_context*  ctx,
         } else {
             if (NULL == (c->filep = fopen(c->filen, "r"))) {
                 pthread_mutex_unlock (&ctx->mutex);
-                return -1;
+                error_exit ("Unable to open %s for reading", c->filen);
             }
         }
 
         if (NULL == (c->buf = calloc (ctx->num_threads, sizeof(char*)))) {
             pthread_mutex_unlock (&ctx->mutex);
-            return -1;
+            error_exit ("Out of memory");
         }
 
         c->frame = 0;
@@ -209,17 +211,19 @@ int fi_input_init (plugin_context*  ctx,
         NULL != (c->buf[thread_id]))
     {
         pthread_mutex_unlock (&ctx->mutex);
-        return -1;
+        error_exit ("Missing ontext/buffers");
     }
 
     if (NULL == (c->buf[thread_id] = malloc (sizeof(char)*BUF_LEN))) {
         pthread_mutex_unlock (&ctx->mutex);
-        return -1;
+        error_exit ("Out of memory");
     }
 
     pthread_mutex_unlock (&ctx->mutex);
+    ret_val = 0;
 
-    return 0;
+exit:
+    return ret_val;
 }
 
 int fi_input_exec (plugin_context*  ctx,
@@ -232,13 +236,16 @@ int fi_input_exec (plugin_context*  ctx,
     image_t* im;
     struct stat sbuf;
     FILE* fptr;
+    int ret_val = -1;
+
+    (void) src_data;
 
     if (NULL == (c = (fi_input_context*) ctx->data)) {
-        return -1;
+        error_exit ("Invalid context");
     }
 
     if (NULL == (im = calloc (1 ,sizeof(image_t)))) {
-        return -1;
+        error_exit ("Out of memory");
     }
     im->width = im->height = im->bpp = -1;
 
@@ -250,7 +257,7 @@ int fi_input_exec (plugin_context*  ctx,
     {
         free (im);
         pthread_mutex_unlock (&ctx->mutex);
-        return -1;
+        error_exit ("Unable to read next input image file name");
     }
 
     /* assign this new frame a proper frame number */
@@ -260,16 +267,16 @@ int fi_input_exec (plugin_context*  ctx,
     pthread_mutex_unlock (&ctx->mutex);
 
     if (0 != stat (path, &sbuf)) {
-        return -1;
+        error_exit ("Unable to stat %s\n", path);
     }
 
     if (NULL == (im->pix = malloc (sizeof(uint8_t)*sbuf.st_size))) {
-        return -1;
+        error_exit ("Out of memory");
     }
     im->size = sizeof(uint8_t)*sbuf.st_size;
 
-    if (NULL == (fptr = fopen(path, "rb"))) {
-        return -1;
+    if (NULL == (fptr = fopen(path, "r"))) {
+        error_exit ("Unable to open %s for reading", path);
     }
 
     if ((uintmax_t) sbuf.st_size != (uintmax_t) fread (im->pix,
@@ -277,17 +284,19 @@ int fi_input_exec (plugin_context*  ctx,
                                                        sbuf.st_size,
                                                        fptr))
     {
-        return -1;
+        error_exit ("Error reading %zd bytes from %s", sbuf.st_size, path);
     }
 
-    if (EOF == fclose (fptr)) {
-        return -1;
+    if (0 != fclose (fptr)) {
+        error_exit ("%s", strerror (errno));
     }
 
     im->fmt = fif_to_native (FreeImage_GetFileType (path, 0));
     *dst_data = im;
+    ret_val = 0;
 
-    return 0;
+exit:
+    return ret_val;
 }
 
 int fi_input_exit (plugin_context*  ctx,
@@ -295,11 +304,12 @@ int fi_input_exit (plugin_context*  ctx,
 {
     fi_input_context* c;
     int i;
+    int ret_val = -1;
 
     if (NULL == (c = (fi_input_context*) ctx->data) ||
         NULL == c->buf[thread_id])
     {
-        return -1;
+        error_exit ("Invalid context");
     }
 
     free (c->buf[thread_id]);
@@ -327,7 +337,10 @@ int fi_input_exit (plugin_context*  ctx,
     ctx->data = NULL;
 
     pthread_mutex_unlock (&ctx->mutex);
-    return 0;
+    ret_val = 0;
+
+exit:
+    return ret_val;
 }
 
 int fi_decode_exec (plugin_context* ctx,
@@ -340,32 +353,32 @@ int fi_decode_exec (plugin_context* ctx,
     FIMEMORY* hmem;
     FREE_IMAGE_FORMAT fif;
     FIBITMAP *dib, *dib24;
+    int ret_val = -1;
+
+    (void) ctx;
+    (void) thread_id;
 
     if (NULL == (sim = *src_data) || NULL != *dst_data) {
-        return -1;
+        error_exit ("Invalid I/O buffers");
     }
 
     if (NULL == (hmem = FreeImage_OpenMemory (sim->pix, sim->size))) {
-        return -1;
+        error_exit ("Unable to open memory");
     }
 
     if (FIF_UNKNOWN == (fif = FreeImage_GetFileTypeFromMemory (hmem, 0))) {
-        return -1;
+        error_exit ("Unable to gess file type from memory");
     }
 
     if (NULL == (dib = FreeImage_LoadFromMemory (fif, hmem, 0))) {
-        return -1;
+        error_exit ("Unable to load image from memory (unable to decode)");
     }
 
     if (NULL == (dim = malloc (sizeof(image_t)))) {
-        return -1;
+        error_exit ("Out of memory");
     }
 
     dib24 = FreeImage_ConvertTo24Bits (dib);
-
-    fprintf (stderr, "pitch:%d\n", FreeImage_GetPitch(dib24));
-    fprintf (stderr, "width:%d\n", FreeImage_GetWidth(dib24));
-    fprintf (stderr, "bpp:%d\n", FreeImage_GetBPP(dib24));
 
     /* plug decoded data into new image */
     dim->pix = FreeImage_GetBits (dib24);
@@ -383,7 +396,10 @@ int fi_decode_exec (plugin_context* ctx,
     FreeImage_Unload (dib);
     FreeImage_CloseMemory (hmem);
 
-    return 0;
+    ret_val = 0;
+
+exit:
+    return ret_val;
 }
 
 typedef struct fi_encode_context {
@@ -546,27 +562,28 @@ int fi_encode_init (plugin_context* ctx,
     fi_encode_context* c;
     char* str;
     data_fmt dst_fmt;
+    int ret_val = -1;
 
     pthread_mutex_lock (&ctx->mutex);
     
     if (NULL == ctx->data) {
         if (-1 == parse_args (args, 0, "dst_fmt", &str)) {
-            return -1;
+            error_exit ("Missing argument for option ``dst_fmt''");
         }
 
         if (FMT_NONE == (dst_fmt = charfmt_to_native (str))) {
             free (str);
-            return -1;
+            error_exit ("Invalid ``dst_fmt'' option: %s", str);
         }
         free (str);
 
         if (NULL == (c = malloc (sizeof(fi_encode_context)))) {
-            return -1;
+            error_exit ("Out of memory");
         }
 
         if (NULL == (c->threads = calloc (ctx->num_threads, sizeof(int)))) {
             free (c);
-            return -1;
+            error_exit ("Out of memory");
         }
         c->dst_fmt = dst_fmt;
         c->dst_fif = native_to_fif (dst_fmt);
@@ -578,12 +595,15 @@ int fi_encode_init (plugin_context* ctx,
     if (NULL == c->threads ||
         0 != c->threads[thread_id])
     {
-        return -1;
+        error_exit ("Invalid context");
     }
     c->threads[thread_id] = 1;
 
     pthread_mutex_unlock (&ctx->mutex);
-    return 0;
+    ret_val = 0;
+
+exit:
+    return ret_val;
 }
 
 int fi_encode_exec (plugin_context* ctx,
@@ -599,29 +619,28 @@ int fi_encode_exec (plugin_context* ctx,
     FIBITMAP* dib;
     uint32_t size = 0;
     uint8_t* pix;
+    int ret_val = -1;
+
+    (void) thread_id;
 
     if (NULL == (c = (fi_encode_context*) ctx->data) ||
         NULL == (sim = *src_data) ||
         NULL != (*dst_data) ||
         NULL == (dim = calloc (1, sizeof(image_t))))
     {
-        fprintf (stderr, "Error with args: fi_encode_exec\n");
-        fprintf (stderr, "c        : NULL == %p\n", (void *) c);
-        fprintf (stderr, "sim      : NULL == %p\n", (void *) sim);
-        fprintf (stderr, "*dst_data: NULL != %p\n", (void *) *dst_data);
-        fprintf (stderr, "dim      : NULL == %p\n", (void *) dim);
-        return -1;
+        error_exit ("Invalid context");
     }
 
     if (sim->ext_free == (void (*)(void *)) &FreeImage_Unload) {
         if (NULL == (dib = sim->ext_data)) {
-            return -1;
+            error_exit ("ext_free was set but ext_data is NULL "
+                        "-- some other plugin messed up");
         }
     } else {
         if (NULL == (dib = FreeImage_Allocate (sim->width, sim->height,
                                                sim->bpp, 0, 0, 0)))
         {
-            return -1;
+            error_exit ("Out of memory");
         }
     }
 
@@ -633,7 +652,7 @@ int fi_encode_exec (plugin_context* ctx,
        !FreeImage_SaveToMemory (fif, dib, hmem, 0) ||
        !FreeImage_AcquireMemory (hmem, &dim->pix, &size))
     {
-        return -1;
+        error_exit ("Unable to decode image");
     }
 
     dim->size = size;
@@ -645,7 +664,10 @@ int fi_encode_exec (plugin_context* ctx,
     dim->frame = sim->frame;
 
     *dst_data = dim;
-    return 0;
+    ret_val = 0;
+
+exit:
+    return ret_val;
 }
 
 int fi_encode_exit (plugin_context* ctx,
@@ -653,11 +675,12 @@ int fi_encode_exit (plugin_context* ctx,
 {
     fi_encode_context* c;
     int i;
+    int ret_val = -1;
 
     pthread_mutex_lock (&ctx->mutex);
 
     if (NULL == (c = (fi_encode_context*) ctx->data)) {
-        return -1;
+        error_exit ("Invalid context");
     }
 
     c->threads[thread_id] = -1;
@@ -674,7 +697,10 @@ int fi_encode_exit (plugin_context* ctx,
     ctx->data = NULL;
 
     pthread_mutex_unlock (&ctx->mutex);
-    return 0;
+    ret_val = 0;
+
+exit:
+    return ret_val;
 }
 
 typedef struct fi_output_context {
@@ -689,12 +715,13 @@ int fi_output_init (plugin_context* ctx,
                     char*           args)
 {
     fi_output_context* c;
+    int ret_val = -1;
 
     pthread_mutex_lock (&ctx->mutex);
 
     if (ctx->data == NULL) {
         if (NULL == (c = malloc (sizeof(fi_output_context)))) {
-            return -1;
+            error_exit ("Out of memory");
         }
 
         parse_args (args, 0, "rsc", &c->filen);
@@ -702,17 +729,17 @@ int fi_output_init (plugin_context* ctx,
             c->filep = stdout;
         } else {
             if (NULL == (c->filep = fopen (c->filen, "w"))) {
-                return -1;
+                error_exit ("Unable to open %s for writing\n", c->filen);
             }
         }
 
         parse_args (args, 0, "dir", &c->dir);
         if (NULL == c->dir) {
-            return -1;
+            error_exit ("Missing argument for option ``dir''");
         }
 
         if (NULL == (c->buf = calloc (ctx->num_threads, sizeof(char*)))) {
-            return -1;
+            error_exit ("Out of memory");
         }
 
         ctx->data = c;
@@ -721,15 +748,18 @@ int fi_output_init (plugin_context* ctx,
     if (NULL == (c = (fi_output_context*) ctx->data) ||
         NULL != (c->buf[thread_id]))
     {
-        return -1;
+        error_exit ("Invalid context");
     }
 
     if (NULL == (c->buf[thread_id] = malloc (sizeof(char)*BUF_LEN))) {
-        return -1;
+        error_exit ("Out of memory");
     }
 
     pthread_mutex_unlock (&ctx->mutex);
-    return 0;
+    ret_val = 0;
+
+exit:
+    return ret_val;
 }
 
 int fi_output_exec (plugin_context* ctx,
@@ -743,10 +773,13 @@ int fi_output_exec (plugin_context* ctx,
     int got_ctx_lock = 0;
     int size;
     char* ext;
+    int ret_val = -1;
+
+    (void) dst_data;
 
     if (NULL == (c = (fi_output_context*) ctx->data) ||
         NULL == (im = *src_data)) {
-        return -1;
+        error_exit ("Invalid context");
     }
 
     ext = native_to_charfmt (im->fmt);
@@ -754,7 +787,7 @@ int fi_output_exec (plugin_context* ctx,
     if (0 > (size = snprintf (c->buf[thread_id], BUF_LEN, "%s/frame-%05ld.%s",
                               c->dir, im->frame, ext)))
     {
-        return -1;
+        error_exit ("Error creating output filename");
     }
 
     free (ext);
@@ -767,14 +800,15 @@ int fi_output_exec (plugin_context* ctx,
                                                     c->filep)
             || 1 != fwrite ("\n", sizeof(char), 1, c->filep))
         {
-            return -1;
+            error_exit ("Error writing new filename (%s) to logfile (%s) in "
+                        "thread %d", c->buf[thread_id], c->filen, thread_id);
         }
 
         pthread_mutex_unlock (&ctx->mutex);
     }
 
     if (NULL == (fptr = fopen (c->buf[thread_id], "w"))) {
-        return -1;
+        error_exit ("Unable to open %s for writing", c->buf[thread_id]);
     }
 
     if ((uintmax_t) im->size != (uintmax_t) fwrite (im->pix,
@@ -782,11 +816,12 @@ int fi_output_exec (plugin_context* ctx,
                                                     im->size,
                                                     fptr))
     {
-        return -1;
+        error_exit ("Error writing %ld bytes to %s", im->size,
+                    c->buf[thread_id]);
     }
 
     if (0 != fclose (fptr)) {
-        return -1;
+        error_exit ("%s", strerror (errno));
     }
 
     if (!got_ctx_lock) {
@@ -797,11 +832,15 @@ int fi_output_exec (plugin_context* ctx,
                                                     c->filep)
             || 1 != fwrite ("\n", 1, sizeof(char), c->filep))
         {
-            return -1;
+            error_exit ("Error writing new filename (%s) to logfile (%s) in "
+                        "thread %d", c->buf[thread_id], c->filen, thread_id);
         }
         pthread_mutex_unlock (&ctx->mutex);
     }
-    return 0;
+    ret_val = 0;
+
+exit:
+    return ret_val;
 }
 
 int fi_output_exit (plugin_context* ctx,
@@ -809,11 +848,12 @@ int fi_output_exit (plugin_context* ctx,
 {
     fi_output_context* c;
     int i;
+    int ret_val = -1;
 
     if (NULL == (c = (fi_output_context*) ctx->data) ||
         NULL == c->buf[thread_id])
     {
-        return -1;
+        error_exit ("Invalid context");
     }
 
     free (c->buf[thread_id]);
@@ -836,7 +876,10 @@ int fi_output_exit (plugin_context* ctx,
     ctx->data = NULL;
 
     pthread_mutex_unlock (&ctx->mutex);
-    return 0;
+    ret_val = 0;
+
+exit:
+    return ret_val;
 }
 
 data_fmt fif_to_native (FREE_IMAGE_FORMAT fif)
