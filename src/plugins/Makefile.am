@@ -6,7 +6,8 @@ pkglib_LTLIBRARIES =    \
     edges.la            \
     artistic.la         \
     v4l2.la             \
-    swscale.la
+    swscale.la          \
+    simpleio.la
 
 freeimage_la_SOURCES = freeimage.c
 freeimage_la_LIBADD = $(FREEIMAGE_LIBS)
@@ -23,3 +24,5 @@ v4l2_la_SOURCES = v4l2.c
 swscale_la_SOURCES = swscale.c
 swscale_la_LIBADD = $(libswscale_LIBS) $(libavutil_LIBS) $(libavcodec_LIBS) $(LOOMLIB_LIBS)
 swscale_la_CFLAGS = $(libswscale_CFLAGS) $(libavutil_CFLAGS) $(libavcodec_CFLAGS) $(LOOMLIB_CFLAGS)
+
+simpleio_la_SOURCES= simpleio.c
