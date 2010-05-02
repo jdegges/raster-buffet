@@ -39,12 +39,6 @@
 #include <image.h>
 #include <plugin.h>
 
-#define error_exit(func, msg) { \
-    fprintf (stderr, "%s_%s(): %s\n", decode_name, func, msg); \
-    ret_val = -1; \
-    goto exit; \
-}
-
 typedef struct swscale_decode_context {
     struct async_queue* sws_context_queue;
     int references;
@@ -151,8 +145,9 @@ int swscale_decode_init (plugin_context*  ctx,
                          char*            args)
 {
     swscale_decode_context* c;
-    struct SwsContext* sws_context;
     int ret_val = -1;
+
+    (void) thread_id;
 
     pthread_mutex_lock (&ctx->mutex);
 
@@ -165,11 +160,11 @@ int swscale_decode_init (plugin_context*  ctx,
 
         /* set up state shared between all threads */
         if (NULL == (c = calloc (1, sizeof *c))) {
-            error_exit ("init", "out of memory");
+            error_exit ("Out of memory");
         }
 
         if (NULL == (c->sws_context_queue = async_queue_new())) {
-            error_exit ("init", "failed to create async queue");
+            error_exit ("Failed to create async queue");
         }
 
         parse_args (args, 0, "width",  &param);
@@ -212,7 +207,7 @@ int swscale_decode_init (plugin_context*  ctx,
     if (NULL == (c = (swscale_decode_context*) ctx->data) ||
         NULL == c->sws_context_queue)
     {
-        error_exit ("init", "context is not properly set");
+        error_exit ("Context is not properly set");
     }
 
     c->references++;
@@ -229,6 +224,8 @@ int swscale_decode_exit (plugin_context*  ctx,
                          int              thread_id)
 {
     swscale_decode_context* c;
+
+    (void) thread_id;
 
     pthread_mutex_lock (&ctx->mutex);
 
@@ -273,8 +270,10 @@ int swscale_decode_exec (plugin_context*  ctx,
     int dst_width;
     int dst_height;
 
+    (void) thread_id;
+
     if (NULL == (sim = *src_data) || NULL != *dst_data) {
-        error_exit ("exec", "bad src/dst data pointers");
+        error_exit ("Bad src/dst data pointers");
     }
 
     assert (NULL != (c = ctx->data));
@@ -294,13 +293,13 @@ int swscale_decode_exec (plugin_context*  ctx,
                                       dst_width, dst_height, c->dst_sws_fmt,
                                       SWS_BICUBIC, NULL, NULL, NULL);
         if (NULL == sws_context) {
-            error_exit ("exec", "error creating sws_context");
+            error_exit ( "Error creating sws_context");
         }
         
     }
 
     if (NULL == (pix = malloc ((sizeof *pix) * dst_width * dst_height * 3))) {
-        error_exit ("exec", "out of memory");
+        error_exit ("Out of memory");
     }
 
     avpicture_fill (&src_picture, sim->pix, native_to_sws (sim->fmt), sim->width, sim->height);
@@ -311,7 +310,7 @@ int swscale_decode_exec (plugin_context*  ctx,
                                  0, dst_height,
                                  dst_picture.data, dst_picture.linesize))
     {
-        error_exit ("exec", "sws_scale failed to convert src->dst");
+        error_exit ("sws_scale failed to convert src->dst");
     }
 
     assert (async_queue_push (c->sws_context_queue, sws_context));
