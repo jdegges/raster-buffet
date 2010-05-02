@@ -20,6 +20,8 @@
  * THE SOFTWARE.
  *****************************************************************************/
 
+#define _BSD_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,7 +49,7 @@
 typedef enum {
     IO_METHOD_READ,
     IO_METHOD_MMAP,
-    IO_METHOD_USERPTR,
+    IO_METHOD_USERPTR
 } io_method;
 
 typedef struct buffer {
@@ -111,12 +113,6 @@ int v4l2_query (plugin_stage stage, plugin_info** pi)
     return 0;
 }
 
-#define error_exit(func, msg) { \
-    fprintf (stderr, "%s_%s(): %s\n", input_name, func, msg); \
-    ret_val = -1; \
-    goto exit; \
-}
-
 static data_fmt fourcc_to_native (unsigned int fmt)
 {
     switch (fmt) {
@@ -124,6 +120,8 @@ static data_fmt fourcc_to_native (unsigned int fmt)
             return FMT_YUYV;
         case V4L2_PIX_FMT_MJPEG:
             return FMT_MJPEG;
+        case V4L2_PIX_FMT_JPEG:
+            return FMT_JPEG;
     }
     return FMT_NONE;
 }
@@ -289,7 +287,7 @@ v4l2_readimage                        (v4l2_input_context*                v,
         FD_ZERO (&fds);
         FD_SET (fd, &fds);
 
-        // Timeout.
+        /* Timeout. */
         tv.tv_sec = 2;
         tv.tv_usec = 0;
 
@@ -309,7 +307,7 @@ v4l2_readimage                        (v4l2_input_context*                v,
         if (read_frame (v, im))
             break;
     
-        // EAGAIN - continue select loop.
+        /* EAGAIN - continue select loop. */
     }
 
     return 0;
@@ -323,6 +321,8 @@ int v4l2_input_exec (plugin_context*    ctx,
     image_t* im;
     v4l2_input_context* v4l2_ctx;
     int ret_val;
+
+    (void) thread_id;
 
     assert (NULL == *src_data);
     assert (NULL == *dst_data);
@@ -697,28 +697,28 @@ init_device                     (v4l2_input_context*      v)
     fmt.fmt.pix.pixelformat = 0;
     fmt.fmt.pix.field       = V4L2_FIELD_NONE;
 
-    // discover what pixel formats and frmsizes are supported by the camera 
+    /* discover what pixel formats and frmsizes are supported by the camera */
     for (i = found_fmt = 0; !found_fmt; i++) {
         CLEAR (fmtdesc);
         fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         fmtdesc.index = i;
 
-        // if enum_fmt not supported, just try what user provided
+        /* if enum_fmt not supported, just try what user provided */
         if (-1 == xioctl (fd, VIDIOC_ENUM_FMT, &fmtdesc)) {
             if (errno == EINVAL) {
                 break;
             }
         }
 
-        // verify that the device supports the desired format and frame sizes
+        /* verify that the device supports the desired format and frame sizes */
         if (fmtdesc.pixelformat == img_fmt) {
-            // get best available frmsize 
+            /* get best available frmsize */
             for (j = 0; !found_fmt; j++) {
                 CLEAR (frmsize);
                 frmsize.pixel_format = img_fmt;
                 frmsize.index = j;
 
-                // abort search if unable to enumerate a formats frame sizes
+                /* abort search if unable to enumerate a formats frame sizes */
                 if (-1 == xioctl (fd, VIDIOC_ENUM_FRAMESIZES, &frmsize)) {
                     break;
                 }
@@ -857,6 +857,8 @@ int v4l2_input_init (plugin_context* ctx,
     struct stat buf;
     int ret_val = -1;
 
+    (void) thread_id;
+
     pthread_mutex_lock (&ctx->mutex);
 
 
@@ -919,6 +921,8 @@ int v4l2_input_exit (plugin_context*    ctx,
                      int                thread_id)
 {
     v4l2_input_context* v4l2_ctx;
+
+    (void) thread_id;
 
     assert (NULL != (v4l2_ctx = ctx->data));
 
