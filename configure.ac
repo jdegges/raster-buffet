@@ -21,13 +21,6 @@ AC_CANONICAL_HOST
 AC_CANONICAL_BUILD
 AC_PROG_LIBTOOL
 
-# Let user decide whether or not to build plugins
-AC_ARG_ENABLE([plugins],
-    [AS_HELP_STRING([--enable-plugins],
-        [build all of the available plugins @<:@default=yes@:>@])],
-    [],
-    [enable_plugins=yes])
-
 # Checks for headers/libraries used in the core.
 ACX_PTHREAD([AC_SUBST([CC], ["${PTHREAD_CC}"])],
     [AC_MSG_ERROR(['pthreads' not found])])
@@ -48,42 +41,37 @@ AC_SUBST([LTDL_LIBS], [${LTDL_LIBS}])
 #
 AC_CHECK_HEADER([FreeImage.h],
     [AC_CHECK_LIB([freeimage], [FreeImage_OpenMemory],
-        [FREEIMAGE_LIBS="-lfreeimage -lstdc++"], [FREEIMAGE_LIBS=], [-lstdc++])],
-    [FREEIMAGE_LIBS=])
-AS_IF([test -z "$FREEIMAGE_LIBS"],
-    [AC_MSG_ERROR(['libfreeimage' not found])])
-AC_SUBST([FREEIMAGE_LIBS], [${FREEIMAGE_LIBS}])
+        [AC_SUBST([FREEIMAGE_LIBS], ["-lfreeimage -lstdc++"])],
+        [],
+        [-lstdc++])],
+    [])
 
 # check for libm
 #
 AC_CHECK_HEADER([math.h],
     [AC_CHECK_LIB([m], [sqrt],
-        [M_LIBS=-lm], [M_LIBS=])],
+        [AC_SUBST([M_LIBS], ["-lm"])], [M_LIBS=])],
     [M_LIBS=])
-AS_IF([test -z "$M_LIBS"],
-    [AC_MSG_ERROR(['libm' not found])])
-AC_SUBST([M_LIBS], [${M_LIBS}])
 
 # check for libfftw3 (and complex.h)
 #
 AC_CHECK_HEADERS([complex.h],
-    [],
-    [AC_MSG_ERROR(['complex.h' was not found])])
-PKG_CHECK_MODULES([FFTW3], [fftw3 >= 3.0.0])
+    [PKG_CHECK_MODULES([FFTW3], [fftw3 >= 3.0.0], [], [])])
 
 # check for libOpenCL
 #
-#AC_CHECK_HEADER([CL/cl.h],
-#    [AC_CHECK_LIB([OpenCL], [clGetDeviceIDs],
-#        [OPENCL_LIBS=-lOpenCL], [OPENCL_LIBS=])],
-#    [OPENCL_LIBS=])
-#AS_IF([test -z "$OPENCL_LIBS"],
-#    [AC_MSG_ERROR(['libOpenCL' not found])])
-#AC_SUBST([OPENCL_LIBS], [${OPENCL_LIBS}])
+AC_CHECK_HEADER([CL/cl.h],
+    [AC_CHECK_LIB([OpenCL], [clGetDeviceIDs],
+        [AC_SUBST([OPENCL_LIBS], ["-lOpenCL"])])])
 
-PKG_CHECK_MODULES([libswscale], [libswscale >= 0.10.0])
-PKG_CHECK_MODULES([libavutil], [libavutil >= 50.12.0])
-PKG_CHECK_MODULES([libavcodec], [libavcodec >= 52.59.0])
+PKG_CHECK_MODULES([libswscale], [libswscale >= 0.10.0], [], [])
+PKG_CHECK_MODULES([libavutil], [libavutil >= 50.12.0], [], [])
+PKG_CHECK_MODULES([libavcodec], [libavcodec >= 52.59.0], [], [])
+
+# check for V4L2 headers
+#
+AC_CHECK_HEADER([linux/videodev2.h], [HAVE_VIDEODEV2_H=1])
+
 
 # add additional header/library checks here
 #   - consult examples for how to structure new checks
@@ -101,6 +89,65 @@ PKG_CHECK_MODULES([libavcodec], [libavcodec >= 52.59.0])
 #    [AC_MSG_ERROR(['libname' not found])])
 #AC_SUBST([LIBNAME_LIBS], [${LIBNAME_LIBS}])
 #
+
+# Conditionally mark plugins for building
+#
+BUILD_ARTISTIC=no
+AS_IF([test "$FFTW3_LIBS"], [BUILD_ARTISTIC=yes])
+AC_ARG_WITH([artistic],
+    AC_HELP_STRING([--without-artistic], [Do not build the artistic plugin.]),
+    [BUILD_ARTISTIC=no])
+AC_SUBST([BUILD_ARTISTIC], [${BUILD_ARTISTIC}])
+AC_SUBST([ARTISTIC_LIBADD], [${FFTW3_LIBS}])
+AC_SUBST([ARTISTIC_CFLAGS], [${FFTW3_CFLAGS}])
+AM_CONDITIONAL([BUILD_ARTISTIC], [test x$BUILD_ARTISTIC = xyes])
+
+BUILD_EDGES=no
+AS_IF([test "$M_LIBS"], [BUILD_EDGES=yes])
+AC_ARG_WITH([edges],
+    AC_HELP_STRING([--without-edges], [Do not build the edges plugin.]),
+    [BUILD_EDGES=no])
+AC_SUBST([BUILD_EDGES], [${BUILD_EDGES}])
+AC_SUBST([EDGES_LIBADD], [${M_LIBS}])
+AM_CONDITIONAL([BUILD_EDGES], [test x$BUILD_EDGES = xyes])
+
+BUILD_FREEIMAGE=no
+AS_IF([test "$FREEIMAGE_LIBS"], [BUILD_FREEIMAGE=yes])
+AC_ARG_WITH([freeimage],
+    AC_HELP_STRING([--without-freeimage], [Do not build the freeimage plugin.]),
+    [BUILD_FREEIMAGE=no])
+AC_SUBST([BUILD_FREEIMAGE], [${BUILD_FREEIMAGE}])
+AC_SUBST([FREEIMAGE_LIBADD], [${FREEIMAGE_LIBS}])
+AM_CONDITIONAL([BUILD_FREEIMAGE], [test x$BUILD_FREEIMAGE = xyes])
+
+BUILD_SIMPLEIO=yes
+AC_ARG_WITH([simpleio],
+    AC_HELP_STRING([--without-simpleio], [Do not build the simpleio plugin.]),
+    [BUILD_SIMPLEIO=no])
+AC_SUBST([BUILD_SIMPLEIO], [${BUILD_SIMPLEIO}])
+AM_CONDITIONAL([BUILD_SIMPLEIO], [test x$BUILD_SIMPLEIO = xyes])
+
+BUILD_SWSCALE=no
+AS_IF([test "$libswscale_LIBS" -a "$libavutil_LIBS" -a "$libavcodec_LIBS"],
+    [BUILD_SWSCALE=yes])
+AC_ARG_WITH([swscale],
+    AC_HELP_STRING([--without-swscale], [Do not build the swscale plugin.]),
+    [BUILD_SWSCALE=no])
+AC_SUBST([BUILD_SWSCALE], [${BUILD_SWSCALE}])
+AC_SUBST([SWSCALE_LIBADD],
+    ["${libswscale_LIBS} ${libavutil_LIBS} ${libavcodec_LIBS} ${LOOMLIB_LIBS}"])
+AC_SUBST([SWSCALE_CFLAGS],
+    ["${libswscale_CFLAGS} ${libavutil_CFLAGS} ${libavcodec_CFLAGS} ${LOOMLIB_CFLAGS}"])
+AM_CONDITIONAL([BUILD_SWSCALE], [test x$BUILD_SWSCALE = xyes])
+
+BUILD_V4L2=no
+AS_IF([test "$HAVE_VIDEODEV2_H"], [BUILD_V4L2=yes])
+AC_ARG_WITH([v4l2],
+    AC_HELP_STRING([--without-v4l2], [Do not build the V4L2 plugin.]),
+    [BUILD_V4L2=no])
+AC_SUBST([BUILD_V4L2], [${BUILD_V4L2}])
+AM_CONDITIONAL([BUILD_V4L2], [test x$BUILD_V4L2 = xyes])
+
 
 # Checks for header files.
 AC_CHECK_HEADERS([inttypes.h stdlib.h string.h unistd.h])
@@ -122,3 +169,14 @@ AC_CONFIG_FILES([Makefile
                  src/Makefile
                  src/plugins/Makefile])
 AC_OUTPUT
+
+echo
+echo "raster-buffet configure summary"
+echo "==============================="
+echo "Artistic plugin  : $BUILD_ARTISTIC"
+echo "Edges plugin     : $BUILD_EDGES"
+echo "FreeImage plugin : $BUILD_FREEIMAGE"
+echo "SimpleIO plugin  : $BUILD_SIMPLEIO"
+echo "SWScale plugin   : $BUILD_SWSCALE"
+echo "V4L2 plugin      : $BUILD_V4L2"
+echo
