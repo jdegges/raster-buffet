@@ -42,6 +42,10 @@
 #include "image.h"
 #include "plugin.h"
 
+#ifndef M_PI
+#define M_PI 3.1415926536
+#endif
+
 /* function definitions */
 int artistic_query (plugin_stage    stage,
                     plugin_info**   pi);
@@ -492,6 +496,8 @@ void artistic_smooth (uint8_t* src,
     const double nxny2 = nxny*nxny;
     const int n = ny*(nx/2+1);
     const int n2 = n*2;
+
+    (void) q;
 
     fftw_complex** src1_c = ab->src1;
     fftw_complex** src2_c = ab->src2;
