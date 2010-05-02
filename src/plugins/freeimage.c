@@ -211,7 +211,7 @@ int fi_input_init (plugin_context*  ctx,
         NULL != (c->buf[thread_id]))
     {
         pthread_mutex_unlock (&ctx->mutex);
-        error_exit ("Missing ontext/buffers");
+        error_exit ("Missing context/buffers");
     }
 
     if (NULL == (c->buf[thread_id] = malloc (sizeof(char)*BUF_LEN))) {
@@ -367,7 +367,7 @@ int fi_decode_exec (plugin_context* ctx,
     }
 
     if (FIF_UNKNOWN == (fif = FreeImage_GetFileTypeFromMemory (hmem, 0))) {
-        error_exit ("Unable to gess file type from memory");
+        error_exit ("Unable to guess file type from memory");
     }
 
     if (NULL == (dib = FreeImage_LoadFromMemory (fif, hmem, 0))) {
