@@ -26,7 +26,7 @@
 
 #include <stdio.h>
 
-// locate the "key:value[,|;]" string withing the args string
+/* locate the "key:value[,|;]" string withing the args string */
 int parse_args(const char* args, const int clear, char* key, char** value) {
     char* start;
     char* pos;
@@ -37,7 +37,7 @@ int parse_args(const char* args, const int clear, char* key, char** value) {
         return -1;
     }
 
-    // find the "key" string
+    /* find the "key" string */
     if (NULL == (start = strcasestr(args, key))) {
         *value = NULL;
         return -1;
@@ -48,12 +48,11 @@ int parse_args(const char* args, const int clear, char* key, char** value) {
     5  6  7  8  9  10 11 12 13 14
     */
 
-    // increment to the next ":"
-    if (NULL == (pos = strcasestr(start, ":")) &&
-        NULL == (pos = strcasestr(start, "=")))
-    {
-        *value = NULL;
-        return -1;
+    /* increment to the next ":" or "=" */
+    for (pos = start; '\0' != *pos; pos++) {
+        if (':' == *pos || '=' == *pos) {
+            break;
+        }
     }
     /*
     v- start v-- pos
@@ -61,12 +60,11 @@ int parse_args(const char* args, const int clear, char* key, char** value) {
     5  6  7  8  9  10 11 12 13 14
     */
 
-    // find the terminating character ',' or ';'
-    if (NULL == (end = strcasestr(pos, ",")) &&
-        NULL == (end = strcasestr(pos, ";")))
-    {
-        *value = NULL;
-        return -1;
+    /* find the terminating character ',' or ';' */
+    for (end = pos; '\0' != *end; end++) {
+        if (',' == *end || ';' == *end) {
+            break;
+        }
     }
     /*
     v- start v-- pos           v-- end
@@ -74,12 +72,12 @@ int parse_args(const char* args, const int clear, char* key, char** value) {
     5  6  7  8  9  10 11 12 13 14
     */
 
-    // allocate space for the value
+    /* allocate space for the value */
     if (NULL == (*value = malloc (sizeof(char)*(end-pos)))) {
         return -1;
     }
 
-    // increment pos to the start of value
+    /* increment pos to the start of value */
     pos++;
     /*
     v- start    v-- pos        v-- end
@@ -87,13 +85,13 @@ int parse_args(const char* args, const int clear, char* key, char** value) {
     5  6  7  8  9  10 11 12 13 14
     */
 
-    // zero out key from args
+    /* zero out key from args */
     char* i;
     for (i = start; clear && i < pos; i++) {
         *i = ' ';
     }
 
-    // copy value into output buffer and zero out value from args
+    /* copy value into output buffer and zero out value from args */
     for (i = *value; i-*value < end-pos; i++) {
         *i = pos[i-*value];
         if (clear) {
