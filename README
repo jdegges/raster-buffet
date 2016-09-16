@@ -1,0 +1,27 @@
+# Required Packages
+  autoconf
+  automake
+  libtool
+  loomlib (http://github.com/jdegges/loomlib)
+
+# Optional Packages
+  ffmpeg (swscale, avutil, avcodec)
+  fftw
+  freeimage
+  v4l2
+  
+# Mac OSX Prerequisite
+
+Add /usr/local/lib and /usr/local/include to search paths
+```
+$ xcode-select --install
+```
+
+# Installation
+
+```
+$ autoreconf -if
+$ ./configure
+$ make
+$ make install
+```
