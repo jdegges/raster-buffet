@@ -615,6 +615,12 @@ int artistic_proc_exec (plugin_context* ctx,
         return -1;
     }
 
+    if (c->width != sim->width || c->height != sim->height)
+    {
+      printf("artistic: frame size mismatch\n");
+      return -1;
+    }
+
     if (NULL == c->b[thread_id]) {
         if (NULL == (c->b[thread_id] = malloc (sizeof(artistic_buf_t))))
         {
