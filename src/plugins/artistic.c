@@ -162,6 +162,8 @@ typedef struct artistic_proc_context {
     int                 ns;
 } artistic_proc_context;
 
+static double g_sgm = 3.8;
+
 int init_global_bufs (plugin_context* ctx, int width, int height, double sgm, int ns)
 {
     artistic_proc_context* c;
@@ -271,7 +273,6 @@ int artistic_proc_init (plugin_context* ctx,
                         char*           args)
 {
     artistic_proc_context* c;
-    const double sgm = 4.0;
     const int ns = 8;
     int nx;
     int ny;
@@ -285,6 +286,13 @@ int artistic_proc_init (plugin_context* ctx,
 
     if (NULL == ctx->data) {
         char* str = NULL;
+
+        parse_args(args, 0, "sgm", &str);
+        if (NULL != str) {
+          g_sgm = strtod(str, NULL);
+          free (str);
+          str = NULL;
+        }
 
         parse_args (args, 0, "width", &str);
         if (NULL == str) {
@@ -308,7 +316,7 @@ int artistic_proc_init (plugin_context* ctx,
           str = NULL;
         }
 
-        if (init_global_bufs (ctx, nx, ny, sgm, ns)) {
+        if (init_global_bufs (ctx, nx, ny, g_sgm, ns)) {
             return -1;
         }
     }
@@ -594,7 +602,6 @@ int artistic_proc_exec (plugin_context* ctx,
     int nx;
     int ny;
     int pitch;
-    double sgm = 4.0;
     int ns = 8;
     image_t* sim;
     image_t* dim;
@@ -605,7 +612,7 @@ int artistic_proc_exec (plugin_context* ctx,
 
     pthread_mutex_lock (&ctx->mutex);
     if (NULL == ctx->data) {
-        if (init_global_bufs (ctx, sim->width, sim->height, sgm, ns)) {
+        if (init_global_bufs (ctx, sim->width, sim->height, g_sgm, ns)) {
             return -1;
         }
     }
