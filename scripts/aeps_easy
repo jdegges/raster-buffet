@@ -1,0 +1,111 @@
+#!/usr/local/bin/python
+
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+terminate_list = []
+
+def handle_input_files(args):
+  stdin_data = ''
+  new_name_list = []
+  for f in sorted(args):
+    # Generate input for raster-buffet. One file path per line.
+    stdin_data += "%s\n" % f
+
+    # Grab file name portion of an input file.
+    file_name_part = f
+    parts = f.split('/')
+    if 1 < len(parts):
+      file_name_part = parts[-1]
+
+    # Save file name portion without the ".extension".
+    parts = file_name_part.split('.')
+    name_only_part = '.'.join(parts[0:-1])
+    new_name = "%s_aeps" % (name_only_part)
+    new_name_list.append(new_name)
+  return stdin_data, new_name_list
+
+def main():
+  if len(sys.argv) < 3:
+    print('Must specify sigma and at least one input: aeps_easy 4.2 foobar.jpg')
+    return
+
+  # Extract sigma argument from command line.
+  sgm = float(sys.argv[1])
+
+  # Convert input file names into a "stdin" buffer and a new name list for
+  # later.
+  stdin_data, new_name_list = handle_input_files(sys.argv[2:])
+
+  # Create a temporary directory to store intermediate outputs.
+  temp_dir = tempfile.mkdtemp(suffix=str(int(time.time())), prefix='rb-')
+
+  # Register the clean-up of this temporary directory so that even if we crash
+  # the directory is cleaned up.
+  terminate_list.append((temp_dir, shutil.rmtree))
+
+  # Construct arguments to raster-buffet that will let us run the AEPS plugin
+  # with the user provided sigma on all of the user provided files. Output
+  # images will be placed in the temporary directory for now.
+  exec_list = ['rb -j4']
+  exec_list += ['--input plugin:freeimage,rsc=-,']
+  exec_list += ['--decode plugin:freeimage,']
+  exec_list += ['--process sgm:%f,plugin=artistic,' % (sgm)]
+  exec_list += ['--encode dst_fmt:PNG,plugin:freeimage,']
+  exec_list += ['--output rsc:-,dir:%s,plugin:freeimage,' % temp_dir]
+
+  # Execute the raster-buffet command.
+  proc = subprocess.Popen(' '.join(exec_list), stdout=subprocess.PIPE,
+                          stdin=subprocess.PIPE, stderr=subprocess.PIPE,
+                          shell=True)
+
+  # Send the prepared stdin buffer containing input file names to the
+  # raster-buffet process and capture any stdout and stderr outputs.
+  (stdout_data, stderr_data) = proc.communicate(input=stdin_data)
+
+  # Make sure raster-buffet exited with success.
+  rc = proc.returncode
+  if 0 <> rc:
+    print('raster-buffet failed to process your images with code: %d' % rc)
+    print('stdout:\n')
+    print(stdout_data.split('\n'))
+    print('stderr:\n')
+    print(stderr_data.split('\n'))
+    return
+
+  # Output file paths are captured in stdout_data. Convert the output string
+  # into a list of file paths by splitting on newline and then throw away any
+  # empty lines by filtering out None.
+  output_files = filter(None, stdout_data.split('\n'))
+
+  # Make sure the output files are in sorted order so we can properly match
+  # them with inputs (which are also sorted).
+  output_files = sorted(output_files)
+
+  # Double check that we got an output for every input.
+  if len(output_files) <> len(new_name_list):
+    print('Unable to rename output files. Check inputs and try again.')
+    return
+
+  for i in range(len(output_files)):
+    # Extract the .extension from the output file path.
+    extension = output_files[i].split('.')[-1]
+
+    # Move the output file to sit right next to the input file but with a
+    # "_aeps" suffix and potentially a different .extension.
+    shutil.move(output_files[i], '%s.%s' % (new_name_list[i], extension))
+
+if __name__ == '__main__':
+  try:
+    main()
+  except e:
+    while(len(terminate_list)):
+      (a, b) = terminate_list.pop()
+      b(a)
+    print(e.what())
+  while(len(terminate_list)):
+    (a, b) = terminate_list.pop()
+    b(a)
