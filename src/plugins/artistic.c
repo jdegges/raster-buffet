@@ -284,27 +284,29 @@ int artistic_proc_init (plugin_context* ctx,
     pthread_mutex_lock (&ctx->mutex);
 
     if (NULL == ctx->data) {
-        char* width_str = NULL;
-        char* height_str = NULL;
+        char* str = NULL;
 
-        parse_args (args, 0, "width", &width_str);
-        if (NULL == width_str) {
+        parse_args (args, 0, "width", &str);
+        if (NULL == str) {
             ctx->data = NULL;
             pthread_mutex_unlock (&ctx->mutex);
             return 0;
+        } else {
+          nx = atoi (str);
+          free (str);
+          str = NULL;
         }
-        nx = atoi (width_str);
-        free (width_str);
 
-        parse_args (args, 0, "height", &height_str);
-        if (NULL == height_str) {
-            free (width_str);
+        parse_args (args, 0, "height", &str);
+        if (NULL == str) {
             ctx->data = NULL;
             pthread_mutex_unlock (&ctx->mutex);
             return 0;
+        } else {
+          ny = atoi (str);
+          free (str);
+          str = NULL;
         }
-        ny = atoi (height_str);
-        free (height_str);
 
         if (init_global_bufs (ctx, nx, ny, sgm, ns)) {
             return -1;
