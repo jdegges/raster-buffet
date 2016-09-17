@@ -109,6 +109,9 @@ fftw_complex* gen_sec (const int nx, const int ny,
     double* out;
 
     double* sec_d = fftw_malloc (sizeof(double)*ny*2*(nx/2+1));
+    if (NULL == sec_d) {
+      return NULL;
+    }
     fftw_complex* sec = (fftw_complex*)sec_d;
     memset(sec_d, 0, sizeof(double)*ny*2*(nx/2+1));
     for (j = 0; j < ny; j++) {
@@ -128,7 +131,9 @@ fftw_complex* gen_sec (const int nx, const int ny,
 
     fftw_execute_dft_c2r (f->backward, sec, sec_d);
 
-    out = fftw_malloc (sizeof(double)*ny*2*(nx/2+1));
+    if (NULL == (out = fftw_malloc (sizeof(double)*ny*2*(nx/2+1)))) {
+      return NULL;
+    }
     x = nx/2;
     y = ny/2;
     for (j = 0; j < ny; j++) {
@@ -176,8 +181,12 @@ int init_global_bufs (plugin_context* ctx, int width, int height, double sgm, in
         return -1;
     }
 
-    f = malloc (sizeof(fft_plans_t));
-    in = fftw_malloc (sizeof(fftw_complex)*ny*(nx/2+1));
+    if (NULL == (f = malloc (sizeof(fft_plans_t)))) {
+      return -1;
+    }
+    if (NULL == (in = fftw_malloc (sizeof(fftw_complex)*ny*(nx/2+1)))) {
+      return -1;
+    }
     f->forward  = fftw_plan_dft_r2c_2d (ny, nx, (double*)in, in, FFTW_ESTIMATE);
     f->backward = fftw_plan_dft_c2r_2d (ny, nx, in, (double*)in, FFTW_ESTIMATE);
     fftw_free (in);
@@ -226,6 +235,10 @@ int init_thread_bufs (plugin_context* ctx, int thread_id)
         f->m    = fftw_malloc (sizeof(fftw_complex*)*3);
         f->num  = fftw_malloc (sizeof(double*)*3);
         f->den  = fftw_malloc (sizeof(double)*ny*2*(nx/2+1));
+        if (NULL == f->g || NULL == f->src1 || NULL == f->src2 || NULL == f->s
+         || NULL == f->m || NULL == f->num || NULL == f->den) {
+          return -1;
+        }
 
         for (i = 0; i < 3; i++) {
             f->src1[i]  = fftw_malloc (sizeof(fftw_complex)*ny*(nx/2+1));
@@ -233,9 +246,15 @@ int init_thread_bufs (plugin_context* ctx, int thread_id)
             f->s[i]     = fftw_malloc (sizeof(fftw_complex)*ny*(nx/2+1));
             f->m[i]     = fftw_malloc (sizeof(fftw_complex)*ny*(nx/2+1));
             f->num[i]   = fftw_malloc (sizeof(double)*ny*2*(nx/2+1));
+            if (NULL == f->src1[i] || NULL == f->src2[i] || NULL == f->s[i]
+              || NULL == f->m[i] || NULL == f->num[i]) {
+              return -1;
+            }
         }
 
-        g1 = malloc (sizeof(double)*nxny);
+        if (NULL == (g1 = malloc (sizeof(double)*nxny))) {
+          return -1;
+        }
         i = nxny;
         g = g1 + nxny - 1;
         while (i--) {
