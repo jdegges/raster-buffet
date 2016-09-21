@@ -176,7 +176,9 @@ AC_DEFINE_DIR([PKGLIBDIR], [libdir/${PACKAGE_NAME}], [The library directory])
 AM_CONDITIONAL([COND_PLUGINS], [test "$xenable_plugins" != xno])
 AC_CONFIG_FILES([Makefile
                  src/Makefile
-                 src/plugins/Makefile])
+                 src/plugins/Makefile
+                 scripts/Makefile
+                 scripts/aeps_easy])
 AC_OUTPUT
 
 echo
