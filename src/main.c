@@ -39,6 +39,13 @@
 #include "image.h"
 #include "plugin.h"
 
+
+#if 1 == BUILD_DEBUG
+#define dprintf printf
+#else
+#define dprintf(...)
+#endif
+
 typedef struct plugin_entry {
     char*           path;
     lt_dlhandle     h;
@@ -114,7 +121,7 @@ int load_plugin (const char* path, plugin_entry* pe) {
         if (0 <= plugin_query (stage, &pe->pi[stage]) &&
             NULL != &pe->pi[stage])
         {
-            printf ("Found plugin '%s' providing for stage %d\n", path, stage);
+            dprintf ("Found plugin '%s' providing for stage %d\n", path, stage);
         }
     }
     free (buf);
@@ -122,7 +129,7 @@ int load_plugin (const char* path, plugin_entry* pe) {
 }
 
 int close_plugin (plugin_entry* pe) {
-    printf("Closing plugin: %s\n", pe->path);
+    dprintf("Closing plugin: %s\n", pe->path);
 
     lt_dlclose (pe->h);
     free (pe->path);
@@ -135,7 +142,7 @@ int load_all_plugins (plugin_entry** pe_list, int pe_size) {
     const char* dname = PKGLIBDIR;
     int i;
 
-    printf ("Searching for plugins in: %s\n", dname);
+    dprintf ("Searching for plugins in: %s\n", dname);
     
     if (NULL == (dir = opendir (dname))) {
         fprintf (stderr, "Cannot open %s\n", dname);
@@ -175,7 +182,7 @@ int load_all_plugins (plugin_entry** pe_list, int pe_size) {
         return -1;
     }
 
-    printf ("\n");
+    dprintf ("\n");
     return 0;
 }
 
@@ -338,7 +345,7 @@ int main (int argc, char** argv) {
     /* } end load all */
 
     /* { go through plugin list and pick plugins that were specified with cli */
-    printf ("Active plugin summary:\n");
+    dprintf ("Active plugin summary:\n");
     for (c = 0; c < PLUGIN_STAGE_MAX; c++) {
         char* value;
         int i;
@@ -357,7 +364,7 @@ int main (int argc, char** argv) {
             {
                 plugins[c] = pe_list[i];
 
-                printf ("Using plugin '%s' on stage %d\n", plugins[c]->path, c);
+                dprintf ("Using plugin '%s' on stage %d\n", plugins[c]->path, c);
 
                 context_list[c].num_threads = parallel;
                 context_list[c].data = NULL;
@@ -366,7 +373,7 @@ int main (int argc, char** argv) {
         }
         free (value);
     }
-    printf ("\n");
+    dprintf ("\n");
     /* } end plugin selection */
 
     /* TODO: spawn a new thread for each stage.
@@ -402,12 +409,12 @@ int main (int argc, char** argv) {
                              plugins[c]->path, c);
                     return -1;
                 } else {
-                    printf ("Initialized '%s' on stage %d\n", plugins[c]->path, c);
+                    dprintf ("Initialized '%s' on stage %d\n", plugins[c]->path, c);
                 }
             }
         }
     }
-    printf ("\n");
+    dprintf ("\n");
 
     /* exec all selected plugins */
     {

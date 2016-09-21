@@ -24,6 +24,12 @@ AC_PROG_LIBTOOL
 LT_CONFIG_LTDL_DIR([libltdl])
 LTDL_INIT
 
+# Enable debug build
+AC_ARG_ENABLE([debug],
+    AC_HELP_STRING([--enable-debug], [Build in debug mode.]),
+    [AC_DEFINE([BUILD_DEBUG], [1], [Build in debug mode.])],
+    [AC_DEFINE([BUILD_DEBUG], [0], [Do not build in debug mode.])])
+
 # Checks for headers/libraries used in the core.
 ACX_PTHREAD([AC_SUBST([CC], ["${PTHREAD_CC}"])],
     [AC_MSG_ERROR(['pthreads' not found])])
